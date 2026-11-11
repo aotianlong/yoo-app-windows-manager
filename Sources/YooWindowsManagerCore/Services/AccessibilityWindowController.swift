@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -29,9 +30,30 @@ public struct AccessibilityWindowController: Sendable {
         AXIsProcessTrusted()
     }
 
-    public func requestTrust() {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+    public func requestTrust(prompt: Bool = true) {
+        if prompt {
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+        openAccessibilitySettings()
+    }
+
+    public func openAccessibilitySettings() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ]
+        for link in urls {
+            if let url = URL(string: link), NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+    }
+
+    public var trustedAppPath: String {
+        Bundle.main.bundlePath.isEmpty
+            ? ProcessInfo.processInfo.arguments.first ?? ProcessInfo.processInfo.processName
+            : Bundle.main.bundlePath
     }
 
     public func apply(placements: [WindowPlacement]) throws {

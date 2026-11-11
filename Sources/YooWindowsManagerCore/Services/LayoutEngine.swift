@@ -13,38 +13,32 @@ public enum LayoutCommand: String, Sendable, CaseIterable {
 public struct LayoutEngine: Sendable {
     public init() {}
 
-    public func direction(for command: LayoutCommand) -> SplitDirection? {
-        switch command {
-        case .splitLeft, .splitRight:
-            return .horizontal
-        case .splitTop, .splitBottom:
-            return .vertical
-        case .balance, .reset:
-            return nil
-        }
+    /// 按窗口数量生成平衡二分树（窗口多时优先水平再垂直交替）。
+    public func autoLayout(windows: [WindowReference]) -> LayoutNode {
+        buildAutoTree(windows: windows, depth: 0)
     }
 
-    public func ratio(for command: LayoutCommand) -> Double {
-        switch command {
-        case .splitLeft, .splitTop:
-            return 0.5
-        case .splitRight, .splitBottom:
-            return 0.5
-        case .balance, .reset:
-            return LayoutNode.defaultRatio
-        }
+    private func buildAutoTree(windows: [WindowReference], depth: Int) -> LayoutNode {
+        guard let first = windows.first else { return .empty }
+        if windows.count == 1 { return .leaf(first) }
+
+        let mid = windows.count / 2
+        let lhs = Array(windows.prefix(mid))
+        let rhs = Array(windows.suffix(windows.count - mid))
+        let direction: SplitDirection = depth.isMultiple(of: 2) ? .horizontal : .vertical
+        let ratio = Double(lhs.count) / Double(windows.count)
+
+        return .split(
+            direction: direction,
+            ratio: ratio,
+            first: buildAutoTree(windows: lhs, depth: depth + 1),
+            second: buildAutoTree(windows: rhs, depth: depth + 1)
+        )
     }
 
-    /// 针对水平/垂直二分，决定在 first 还是 second 侧放入新焦点窗口。
-    public func preferFirstChild(for command: LayoutCommand) -> Bool {
-        switch command {
-        case .splitLeft, .splitTop:
-            return true
-        case .splitRight, .splitBottom:
-            return false
-        case .balance, .reset:
-            return true
-        }
+    public func applyAutoLayout(workspace: inout LayoutWorkspace, windows: [WindowReference]) {
+        workspace.root = autoLayout(windows: windows)
+        workspace.focusedWindowID = windows.last?.windowID
     }
 
     public func apply(command: LayoutCommand, workspace: inout LayoutWorkspace, focused: WindowReference) {
