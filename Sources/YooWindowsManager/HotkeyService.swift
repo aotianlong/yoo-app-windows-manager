@@ -9,12 +9,26 @@ final class HotkeyService: @unchecked Sendable {
 
     private var eventHandler: EventHandlerRef?
     private var hotKeyRefs: [EventHotKeyRef] = []
-    private let relayoutHotKeyID: UInt32 = 1
-    private let promoteFirstHotKeyID: UInt32 = 2
-    private let moveUpHotKeyID: UInt32 = 3
-    private let moveDownHotKeyID: UInt32 = 4
+    func start(shortcuts: [HotkeyAction: GlobalShortcut]) {
+        if eventHandler == nil {
+            installEventHandler()
+        }
+        reload(shortcuts: shortcuts)
+    }
 
-    func start() {
+    func reload(shortcuts: [HotkeyAction: GlobalShortcut]) {
+        for ref in hotKeyRefs {
+            UnregisterEventHotKey(ref)
+        }
+        hotKeyRefs.removeAll()
+
+        for action in HotkeyAction.allCases {
+            guard let shortcut = shortcuts[action], shortcut.isEnabled else { continue }
+            registerHotKey(id: action.rawValue, keyCode: shortcut.keyCode, modifiers: shortcut.modifiers)
+        }
+    }
+
+    private func installEventHandler() {
         guard eventHandler == nil else { return }
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -31,27 +45,6 @@ final class HotkeyService: @unchecked Sendable {
             &eventType,
             selfPointer,
             &eventHandler
-        )
-
-        registerHotKey(
-            id: relayoutHotKeyID,
-            keyCode: UInt32(kVK_ANSI_R),
-            modifiers: UInt32(controlKey | shiftKey)
-        )
-        registerHotKey(
-            id: promoteFirstHotKeyID,
-            keyCode: UInt32(kVK_Return),
-            modifiers: UInt32(controlKey | shiftKey)
-        )
-        registerHotKey(
-            id: moveUpHotKeyID,
-            keyCode: UInt32(kVK_ANSI_I),
-            modifiers: UInt32(controlKey | shiftKey)
-        )
-        registerHotKey(
-            id: moveDownHotKeyID,
-            keyCode: UInt32(kVK_ANSI_J),
-            modifiers: UInt32(controlKey | shiftKey)
         )
     }
 
@@ -86,13 +79,13 @@ final class HotkeyService: @unchecked Sendable {
         )
         guard status == noErr else { return }
         switch hotKeyID.id {
-        case relayoutHotKeyID:
+        case HotkeyAction.relayout.rawValue:
             onRelayout?()
-        case promoteFirstHotKeyID:
+        case HotkeyAction.promoteFirst.rawValue:
             onPromoteFirst?()
-        case moveUpHotKeyID:
+        case HotkeyAction.moveUp.rawValue:
             onMoveUp?()
-        case moveDownHotKeyID:
+        case HotkeyAction.moveDown.rawValue:
             onMoveDown?()
         default:
             break

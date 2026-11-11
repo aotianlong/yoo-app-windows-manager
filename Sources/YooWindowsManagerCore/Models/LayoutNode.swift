@@ -92,6 +92,86 @@ public indirect enum LayoutNode: Codable, Sendable, Equatable {
         }
     }
 
+    /// 根据用户实际拖动后的窗口边缘，更新与该窗口直接相邻的二分线。
+    /// `expectedFrame` 和 `projectedFrame` 都是不含窗口间距的布局坐标。
+    public func adjustingSplitRatios(
+        for windowID: UInt32,
+        expectedFrame: CGRect,
+        projectedFrame: CGRect,
+        in area: CGRect,
+        edgeTolerance: CGFloat = 2
+    ) -> LayoutNode {
+        switch self {
+        case .empty, .leaf:
+            return self
+        case let .split(direction, ratio, first, second):
+            let originalRatio = clampRatio(ratio)
+            let (originalFirstArea, originalSecondArea) = splitAreas(
+                direction: direction,
+                ratio: originalRatio,
+                area: area
+            )
+            let isInFirst = first.contains(windowID: windowID)
+            let isInSecond = second.contains(windowID: windowID)
+            guard isInFirst || isInSecond else { return self }
+
+            var adjustedRatio = originalRatio
+            switch direction {
+            case .horizontal:
+                let boundary = originalFirstArea.maxX
+                if isInFirst, abs(expectedFrame.maxX - boundary) <= edgeTolerance {
+                    adjustedRatio = clampRatio(Double((projectedFrame.maxX - area.minX) / area.width))
+                } else if isInSecond, abs(expectedFrame.minX - boundary) <= edgeTolerance {
+                    adjustedRatio = clampRatio(Double((projectedFrame.minX - area.minX) / area.width))
+                }
+            case .vertical:
+                let boundary = originalFirstArea.minY
+                if isInFirst, abs(expectedFrame.minY - boundary) <= edgeTolerance {
+                    adjustedRatio = clampRatio(Double((area.maxY - projectedFrame.minY) / area.height))
+                } else if isInSecond, abs(expectedFrame.maxY - boundary) <= edgeTolerance {
+                    adjustedRatio = clampRatio(Double((area.maxY - projectedFrame.maxY) / area.height))
+                }
+            }
+
+            let adjustedFirst = isInFirst
+                ? first.adjustingSplitRatios(
+                    for: windowID,
+                    expectedFrame: expectedFrame,
+                    projectedFrame: projectedFrame,
+                    in: originalFirstArea,
+                    edgeTolerance: edgeTolerance
+                )
+                : first
+            let adjustedSecond = isInSecond
+                ? second.adjustingSplitRatios(
+                    for: windowID,
+                    expectedFrame: expectedFrame,
+                    projectedFrame: projectedFrame,
+                    in: originalSecondArea,
+                    edgeTolerance: edgeTolerance
+                )
+                : second
+
+            return .split(
+                direction: direction,
+                ratio: adjustedRatio,
+                first: adjustedFirst,
+                second: adjustedSecond
+            )
+        }
+    }
+
+    public func contains(windowID: UInt32) -> Bool {
+        switch self {
+        case .empty:
+            return false
+        case let .leaf(window):
+            return window.windowID == windowID
+        case let .split(_, _, first, second):
+            return first.contains(windowID: windowID) || second.contains(windowID: windowID)
+        }
+    }
+
     public func replacing(windowID: UInt32, with newWindow: WindowReference) -> LayoutNode {
         switch self {
         case .empty:
@@ -142,6 +222,23 @@ public indirect enum LayoutNode: Codable, Sendable, Equatable {
         }
     }
 
+}
+
+private func splitAreas(direction: SplitDirection, ratio: Double, area: CGRect) -> (CGRect, CGRect) {
+    switch direction {
+    case .horizontal:
+        let width = area.width * ratio
+        return (
+            CGRect(x: area.minX, y: area.minY, width: width, height: area.height),
+            CGRect(x: area.minX + width, y: area.minY, width: area.width - width, height: area.height)
+        )
+    case .vertical:
+        let height = area.height * ratio
+        return (
+            CGRect(x: area.minX, y: area.maxY - height, width: area.width, height: height),
+            CGRect(x: area.minX, y: area.minY, width: area.width, height: area.height - height)
+        )
+    }
 }
 
 private func clampRatio(_ value: Double) -> Double {

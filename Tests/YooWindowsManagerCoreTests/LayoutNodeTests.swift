@@ -81,6 +81,50 @@ final class LayoutNodeTests: XCTestCase {
         XCTAssertEqual(frames[2]!.minX - frames[1]!.maxX, 10, accuracy: 0.1)
     }
 
+    func testWorkspaceSupportsIndependentScreenEdgeGap() {
+        let root = LayoutEngine().autoLayout(windows: makeWindows(count: 2))
+        let workspace = LayoutWorkspace(
+            id: "screen",
+            screenName: "screen",
+            usableFrame: area,
+            root: root
+        )
+        let frames = dictionary(workspace.placements(windowGap: 10, edgeGap: 20))
+
+        assertEqual(frames[1], CGRect(x: 20, y: 20, width: 475, height: 760))
+        assertEqual(frames[2], CGRect(x: 505, y: 20, width: 475, height: 760))
+        XCTAssertEqual(frames[2]!.minX - frames[1]!.maxX, 10, accuracy: 0.1)
+    }
+
+    func testResizingFirstWindowMovesHorizontalDivider() {
+        let root = LayoutEngine().autoLayout(windows: makeWindows(count: 2))
+        let resized = root.adjustingSplitRatios(
+            for: 1,
+            expectedFrame: CGRect(x: 0, y: 0, width: 500, height: 800),
+            projectedFrame: CGRect(x: 0, y: 0, width: 650, height: 800),
+            in: area
+        )
+        let frames = dictionary(resized.resolvedPlacements(in: area))
+
+        assertEqual(frames[1], CGRect(x: 0, y: 0, width: 650, height: 800))
+        assertEqual(frames[2], CGRect(x: 650, y: 0, width: 350, height: 800))
+    }
+
+    func testResizingLowerWindowMovesVerticalDivider() {
+        let root = LayoutEngine().autoLayout(windows: makeWindows(count: 3))
+        let resized = root.adjustingSplitRatios(
+            for: 3,
+            expectedFrame: CGRect(x: 500, y: 0, width: 500, height: 400),
+            projectedFrame: CGRect(x: 500, y: 0, width: 500, height: 300),
+            in: area
+        )
+        let frames = dictionary(resized.resolvedPlacements(in: area))
+
+        assertEqual(frames[1], CGRect(x: 0, y: 0, width: 500, height: 800))
+        assertEqual(frames[2], CGRect(x: 500, y: 300, width: 500, height: 500))
+        assertEqual(frames[3], CGRect(x: 500, y: 0, width: 500, height: 300))
+    }
+
     func testCoordinateConversionFlipsAroundMainScreenTop() {
         let cocoaFrame = CGRect(x: 0, y: 90, width: 1280, height: 1320)
 

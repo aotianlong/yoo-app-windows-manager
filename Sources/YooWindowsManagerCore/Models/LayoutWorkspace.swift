@@ -4,6 +4,7 @@ import Foundation
 /// 单个显示器上的二分布局工作区。
 public struct LayoutWorkspace: Codable, Sendable, Equatable, Identifiable {
     public static let defaultWindowGap: CGFloat = 10
+    public static let defaultEdgeGap: CGFloat = 5
 
     public let id: String
     public var screenName: String
@@ -57,12 +58,26 @@ public struct LayoutWorkspace: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
-    public func placements(windowGap: CGFloat = LayoutWorkspace.defaultWindowGap) -> [WindowPlacement] {
-        let inset = max(0, windowGap) / 2
+    public func placements(
+        windowGap: CGFloat = LayoutWorkspace.defaultWindowGap,
+        edgeGap: CGFloat = LayoutWorkspace.defaultEdgeGap
+    ) -> [WindowPlacement] {
+        let halfGap = max(0, windowGap) / 2
+        let outerGap = max(0, edgeGap)
         return root.resolvedPlacements(in: usableFrame).map { placement in
-            WindowPlacement(
+            let raw = placement.frame
+            let minX = approximatelyEqual(raw.minX, usableFrame.minX) ? raw.minX + outerGap : raw.minX + halfGap
+            let maxX = approximatelyEqual(raw.maxX, usableFrame.maxX) ? raw.maxX - outerGap : raw.maxX - halfGap
+            let minY = approximatelyEqual(raw.minY, usableFrame.minY) ? raw.minY + outerGap : raw.minY + halfGap
+            let maxY = approximatelyEqual(raw.maxY, usableFrame.maxY) ? raw.maxY - outerGap : raw.maxY - halfGap
+            return WindowPlacement(
                 window: placement.window,
-                frame: placement.frame.insetBy(dx: inset, dy: inset)
+                frame: CGRect(
+                    x: minX,
+                    y: minY,
+                    width: max(1, maxX - minX),
+                    height: max(1, maxY - minY)
+                )
             )
         }
     }
@@ -83,4 +98,8 @@ public struct LayoutWorkspace: Codable, Sendable, Equatable, Identifiable {
             return .split(direction: direction, ratio: LayoutNode.defaultRatio, first: rebalance(node: first), second: rebalance(node: second))
         }
     }
+}
+
+private func approximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat) -> Bool {
+    abs(lhs - rhs) < 0.5
 }

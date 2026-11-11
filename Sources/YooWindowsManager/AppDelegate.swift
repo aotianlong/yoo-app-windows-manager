@@ -3,8 +3,6 @@ import YooWindowsManagerCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let minimumSwapDragDistance: CGFloat = 80
-
     private enum WindowOrderChange {
         case first
         case up
@@ -18,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let interactionPause = InteractionPauseMonitor()
     private let hotkeys = HotkeyService()
     private let dragFeedback = DragFeedbackOverlayController()
+    private let settings = AppSettings()
+    private lazy var settingsWindow = SettingsWindowController(settings: settings)
 
     private var statusItem: NSStatusItem?
     private var autoLayoutTimer: Timer?
@@ -27,7 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var draggedWindowID: UInt32?
     private var draggedScreenName: String?
     private var draggedWindowInitialFrame: CGRect?
+    private var draggedRootAtStart: LayoutNode?
+    private var draggedExpectedFrameAtStart: CGRect?
     private var dragStartPoint: CGPoint?
+    private var isResizingManagedWindow = false
     private var isApplyingLayout = false
 
     private var ownPID: pid_t { ProcessInfo.processInfo.processIdentifier }
@@ -35,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
+        settings.onChange = { [weak self] change in
+            self?.settingsDidChange(change)
+        }
         startAutoLayout()
         hotkeys.onRelayout = { [weak self] in
             Task { @MainActor in
@@ -56,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.reorderFocusedWindow(.down)
             }
         }
-        hotkeys.start()
+        hotkeys.start(shortcuts: settings.shortcuts)
         if !ax.isTrusted() {
             DispatchQueue.main.async { [weak self] in
                 _ = self?.ensureAccessibilityPermission()
@@ -74,6 +80,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         interactionPause.onInteractionEnded = { [weak self] dropPoint in
             self?.handleInteractionEnded(dropPoint: dropPoint)
+        }
+        if ProcessInfo.processInfo.arguments.contains("--about") {
+            DispatchQueue.main.async { [weak self] in
+                self?.showAbout()
+            }
+        } else if ProcessInfo.processInfo.arguments.contains("--settings") {
+            DispatchQueue.main.async { [weak self] in
+                self?.openSettings()
+            }
         }
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -95,6 +110,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         relayoutItem.keyEquivalentModifierMask = [.control, .shift]
         relayoutItem.target = self
         menu.addItem(relayoutItem)
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.keyEquivalentModifierMask = [.command]
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        let aboutItem = NSMenuItem(
+            title: "关于 Yoo Windows Manager",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
         menu.addItem(.separator())
 
         let accessibilityItem = NSMenuItem(
@@ -114,7 +140,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func relayoutNow() {
         guard ensureAccessibilityPermission() else { return }
-        relayoutAllScreensIfNeeded(force: true, animated: true)
+        relayoutAllScreensIfNeeded(force: true, animated: settings.animateRelayout)
+    }
+
+    @objc private func openSettings() {
+        settingsWindow.show()
+    }
+
+    @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        let credits = """
+        严格二分窗口管理器
+
+        支持多显示器、窗口间距、实时缩放联动、拖动交换和可配置全局快捷键。
+
+        安装位置：\(Bundle.main.bundlePath)
+        """
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Yoo Windows Manager",
+            .applicationVersion: version,
+            .version: "版本 \(version)（\(build)）",
+            .credits: NSAttributedString(string: credits),
+        ])
     }
 
     private func reorderFocusedWindow(_ change: WindowOrderChange) {
@@ -144,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         workspace.windowOrder = ordered.map(\.windowID)
         store.update(workspace)
-        relayoutAllScreensIfNeeded(force: true, animated: true)
+        relayoutAllScreensIfNeeded(force: true, animated: settings.animateRelayout)
     }
 
     @objc private func requestAccessibilityPermission() {
@@ -175,7 +224,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         draggedWindowID = nil
         draggedScreenName = nil
         draggedWindowInitialFrame = nil
+        draggedRootAtStart = nil
+        draggedExpectedFrameAtStart = nil
         dragStartPoint = startPoint
+        isResizingManagedWindow = false
 
         guard let window = discovery.frontmostWindow(excludingPID: ownPID) else { return }
         guard let screen = NSScreen.screens.first(where: { screen in
@@ -189,6 +241,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for: window.windowID,
             excludingPID: ownPID
         )
+        let workspace = store.workspace(for: screen)
+        draggedRootAtStart = workspace.root
+        draggedExpectedFrameAtStart = workspace.root
+            .resolvedPlacements(in: workspace.usableFrame)
+            .first(where: { $0.window.windowID == window.windowID })?
+            .frame
     }
 
     private func handleDragChanged(currentPoint: CGPoint) {
@@ -196,10 +254,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let draggedScreenName,
               let initialFrame = draggedWindowInitialFrame,
               let currentFrame = discovery.cocoaFrame(for: draggedWindowID, excludingPID: ownPID),
-              let movedDistance = windowDragDistance(from: initialFrame, to: currentFrame),
-              movedDistance > 1,
-              let startPoint = dragStartPoint,
               let screen = NSScreen.screens.first(where: { $0.localizedName == draggedScreenName })
+        else {
+            dragFeedback.hide()
+            return
+        }
+
+        if windowSizeChanged(from: initialFrame, to: currentFrame) {
+            dragFeedback.hide()
+            handleResizeChanged(
+                windowID: draggedWindowID,
+                screen: screen,
+                initialFrame: initialFrame,
+                currentFrame: currentFrame
+            )
+            return
+        }
+
+        guard let movedDistance = windowDragDistance(from: initialFrame, to: currentFrame),
+              movedDistance > 1,
+              let startPoint = dragStartPoint
         else {
             dragFeedback.hide()
             return
@@ -207,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let workspace = store.workspace(for: screen)
         let rawPlacements = workspace.root.resolvedPlacements(in: workspace.usableFrame)
-        let visiblePlacements = workspace.placements()
+        let visiblePlacements = placements(for: workspace)
         guard let sourceFrame = visiblePlacements
             .first(where: { $0.window.windowID == draggedWindowID })?
             .frame
@@ -221,7 +295,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .first(where: { $0.window.windowID != draggedWindowID && $0.frame.contains(currentPoint) })?
             .window.windowID
 
-        if dragDistance >= Self.minimumSwapDragDistance,
+        guard settings.showDragFeedback else {
+            dragFeedback.hide()
+            return
+        }
+
+        if dragDistance >= settings.swapDistance,
            let targetID,
            let targetFrame = visiblePlacements.first(where: { $0.window.windowID == targetID })?.frame
         {
@@ -231,18 +310,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func handleResizeChanged(
+        windowID: UInt32,
+        screen: NSScreen,
+        initialFrame: CGRect,
+        currentFrame: CGRect
+    ) {
+        guard let rootAtStart = draggedRootAtStart,
+              let expectedFrame = draggedExpectedFrameAtStart
+        else { return }
+
+        let projectedFrame = CGRect(
+            x: expectedFrame.minX + currentFrame.minX - initialFrame.minX,
+            y: expectedFrame.minY + currentFrame.minY - initialFrame.minY,
+            width: expectedFrame.width + currentFrame.width - initialFrame.width,
+            height: expectedFrame.height + currentFrame.height - initialFrame.height
+        )
+
+        var workspace = store.workspace(for: screen)
+        workspace.root = rootAtStart.adjustingSplitRatios(
+            for: windowID,
+            expectedFrame: expectedFrame,
+            projectedFrame: projectedFrame,
+            in: workspace.usableFrame
+        )
+        store.update(workspace)
+        isResizingManagedWindow = true
+        applyWorkspace(workspace, excludingWindowID: windowID, animated: false)
+    }
+
     private func handleInteractionEnded(dropPoint: CGPoint) {
         defer {
             draggedWindowID = nil
             draggedScreenName = nil
             draggedWindowInitialFrame = nil
+            draggedRootAtStart = nil
+            draggedExpectedFrameAtStart = nil
             dragStartPoint = nil
+            isResizingManagedWindow = false
+        }
+
+        if isResizingManagedWindow {
+            guard let draggedScreenName,
+                  let screen = NSScreen.screens.first(where: { $0.localizedName == draggedScreenName })
+            else { return }
+            applyWorkspace(store.workspace(for: screen), animated: false)
+            return
         }
 
         let assignmentNow = screenAssignmentSignature()
         let crossDisplay = assignmentNow != screenAssignmentAtDragStart
         if crossDisplay {
-            relayoutAllScreensIfNeeded(force: true, animated: true)
+            relayoutAllScreensIfNeeded(force: true, animated: settings.animateRelayout)
             return
         }
 
@@ -257,22 +376,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { return }
 
         let pointerDistance = hypot(dropPoint.x - startPoint.x, dropPoint.y - startPoint.y)
-        if pointerDistance >= Self.minimumSwapDragDistance {
+        if pointerDistance >= settings.swapDistance {
             swapDraggedWindow(draggedWindowID, on: screen, at: dropPoint)
         }
 
         // 没达到交换阈值或没有命中其他槽位时，按原顺序恢复窗口位置。
-        relayoutAllScreensIfNeeded(force: true, animated: true)
+        relayoutAllScreensIfNeeded(force: true, animated: settings.animateRelayout)
     }
 
     private func windowDragDistance(from initialFrame: CGRect, to finalFrame: CGRect) -> CGFloat? {
-        let sizeChanged = abs(finalFrame.width - initialFrame.width) > 2
-            || abs(finalFrame.height - initialFrame.height) > 2
-        guard !sizeChanged else { return nil }
+        guard !windowSizeChanged(from: initialFrame, to: finalFrame) else { return nil }
         return hypot(
             finalFrame.origin.x - initialFrame.origin.x,
             finalFrame.origin.y - initialFrame.origin.y
         )
+    }
+
+    private func windowSizeChanged(from initialFrame: CGRect, to currentFrame: CGRect) -> Bool {
+        abs(currentFrame.width - initialFrame.width) > 2
+            || abs(currentFrame.height - initialFrame.height) > 2
+    }
+
+    private func applyWorkspace(
+        _ workspace: LayoutWorkspace,
+        excludingWindowID: UInt32? = nil,
+        animated: Bool
+    ) {
+        guard ax.isTrusted(), !isApplyingLayout else { return }
+        let placements = placements(for: workspace).filter { placement in
+            placement.window.windowID != excludingWindowID
+        }
+        guard !placements.isEmpty else { return }
+
+        isApplyingLayout = true
+        defer { isApplyingLayout = false }
+        let startingFrames = discovery.cocoaFramesByID(excludingPID: ownPID)
+        try? ax.apply(placements: placements, startingFrames: startingFrames, animated: animated)
     }
 
     /// 鼠标松开在哪个原始二分槽位，就与该槽位里的窗口交换顺序。
@@ -287,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
 
-        // 使用未 inset 的槽位命中测试，窗口之间的 10pt 间距也归属于相邻槽位。
+        // 使用未 inset 的槽位命中测试，窗口之间的可配置间距也归属于相邻槽位。
         guard let targetID = workspace.root
             .resolvedPlacements(in: workspace.usableFrame)
             .first(where: { $0.window.windowID != draggedWindowID && $0.frame.contains(dropPoint) })?
@@ -303,7 +442,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startAutoLayout() {
         stopAutoLayout()
-        autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        if !settings.layoutOnLaunch {
+            lastSignature = windowSetSignature()
+        }
+        autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: settings.autoLayoutInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.relayoutAllScreensIfNeeded(animated: false)
             }
@@ -319,7 +461,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         draggedWindowID = nil
         draggedScreenName = nil
         draggedWindowInitialFrame = nil
+        draggedRootAtStart = nil
+        draggedExpectedFrameAtStart = nil
         dragStartPoint = nil
+        isResizingManagedWindow = false
+    }
+
+    private func settingsDidChange(_ change: SettingsChange) {
+        switch change {
+        case .layout:
+            applyAllCurrentWorkspaces()
+        case .timer:
+            startAutoLayout()
+        case .hotkeys:
+            hotkeys.reload(shortcuts: settings.shortcuts)
+        case .behavior:
+            if !settings.showDragFeedback {
+                dragFeedback.hide()
+            }
+        }
+    }
+
+    private func placements(for workspace: LayoutWorkspace) -> [WindowPlacement] {
+        workspace.placements(windowGap: settings.windowGap, edgeGap: settings.edgeGap)
+    }
+
+    private func applyAllCurrentWorkspaces() {
+        guard ax.isTrusted(), !isApplyingLayout else { return }
+        let allPlacements = NSScreen.screens.flatMap { screen in
+            placements(for: store.workspace(for: screen))
+        }
+        guard !allPlacements.isEmpty else { return }
+
+        isApplyingLayout = true
+        defer { isApplyingLayout = false }
+        let startingFrames = discovery.cocoaFramesByID(excludingPID: ownPID)
+        try? ax.apply(placements: allPlacements, startingFrames: startingFrames, animated: false)
     }
 
     private func relayoutAllScreensIfNeeded(force: Bool = false, animated: Bool = false) {
@@ -377,7 +554,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let screen = NSScreen.screens.first(where: { $0.localizedName == screenName }) else { continue }
                 var workspace = store.workspace(for: screen)
                 workspace.windowOrder.removeAll { $0 == windowID }
-                workspace.windowOrder.insert(windowID, at: 0)
+                if settings.movedWindowFirst {
+                    workspace.windowOrder.insert(windowID, at: 0)
+                } else {
+                    workspace.windowOrder.append(windowID)
+                }
                 store.update(workspace)
             }
         }
@@ -416,7 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let windows = engine.stabilize(discovered: discovered, previousOrder: workspace.windowOrder)
             engine.applyAutoLayout(workspace: &workspace, windows: windows)
-            allPlacements.append(contentsOf: workspace.placements())
+            allPlacements.append(contentsOf: placements(for: workspace))
             store.update(workspace)
         }
 
