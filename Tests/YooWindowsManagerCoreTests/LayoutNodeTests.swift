@@ -53,6 +53,60 @@ final class LayoutNodeTests: XCTestCase {
         assertEqual(frames[4], CGRect(x: 750, y: 0, width: 250, height: 400))
     }
 
+    func testSpiralLayoutFiveWindows() {
+        let engine = LayoutEngine()
+        let windows = makeWindows(count: 5)
+        let frames = dictionary(engine.autoLayout(windows: windows).resolvedPlacements(in: area))
+
+        assertEqual(frames[1], CGRect(x: 0, y: 0, width: 500, height: 800))
+        assertEqual(frames[2], CGRect(x: 500, y: 400, width: 500, height: 400))
+        assertEqual(frames[3], CGRect(x: 500, y: 0, width: 250, height: 400))
+        assertEqual(frames[4], CGRect(x: 750, y: 200, width: 250, height: 200))
+        assertEqual(frames[5], CGRect(x: 750, y: 0, width: 250, height: 200))
+    }
+
+    func testWorkspaceAddsTenPointGapBetweenWindows() {
+        let windows = makeWindows(count: 2)
+        let root = LayoutEngine().autoLayout(windows: windows)
+        let workspace = LayoutWorkspace(
+            id: "screen",
+            screenName: "screen",
+            usableFrame: area,
+            root: root
+        )
+        let frames = dictionary(workspace.placements())
+
+        assertEqual(frames[1], CGRect(x: 5, y: 5, width: 490, height: 790))
+        assertEqual(frames[2], CGRect(x: 505, y: 5, width: 490, height: 790))
+        XCTAssertEqual(frames[2]!.minX - frames[1]!.maxX, 10, accuracy: 0.1)
+    }
+
+    func testCoordinateConversionFlipsAroundMainScreenTop() {
+        let cocoaFrame = CGRect(x: 0, y: 90, width: 1280, height: 1320)
+
+        let accessibilityFrame = ScreenCoordinateConverter.flipVertically(
+            cocoaFrame,
+            mainScreenMaxY: 1440
+        )
+
+        assertEqual(accessibilityFrame, CGRect(x: 0, y: 30, width: 1280, height: 1320))
+        assertEqual(
+            ScreenCoordinateConverter.flipVertically(accessibilityFrame, mainScreenMaxY: 1440),
+            cocoaFrame
+        )
+    }
+
+    func testCoordinateConversionSupportsDisplayAboveMainScreen() {
+        let cocoaFrame = CGRect(x: 0, y: 1440, width: 1920, height: 1080)
+
+        let accessibilityFrame = ScreenCoordinateConverter.flipVertically(
+            cocoaFrame,
+            mainScreenMaxY: 1440
+        )
+
+        assertEqual(accessibilityFrame, CGRect(x: 0, y: -1080, width: 1920, height: 1080))
+    }
+
     private func makeWindows(count: Int) -> [WindowReference] {
         (1 ... count).map {
             WindowReference(windowID: UInt32($0), ownerPID: Int32($0), ownerName: "A", title: "")
@@ -72,5 +126,9 @@ final class LayoutNodeTests: XCTestCase {
         XCTAssertEqual(actual.origin.y, expected.origin.y, accuracy: 0.5, file: file, line: line)
         XCTAssertEqual(actual.size.width, expected.size.width, accuracy: 0.5, file: file, line: line)
         XCTAssertEqual(actual.size.height, expected.size.height, accuracy: 0.5, file: file, line: line)
+    }
+
+    private func assertEqual(_ actual: CGRect, _ expected: CGRect, file: StaticString = #file, line: UInt = #line) {
+        assertEqual(Optional(actual), expected, file: file, line: line)
     }
 }

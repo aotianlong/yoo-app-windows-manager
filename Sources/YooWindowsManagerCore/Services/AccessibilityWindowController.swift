@@ -51,9 +51,12 @@ public struct AccessibilityWindowController: Sendable {
     }
 
     public var trustedAppPath: String {
-        Bundle.main.bundlePath.isEmpty
-            ? ProcessInfo.processInfo.arguments.first ?? ProcessInfo.processInfo.processName
-            : Bundle.main.bundlePath
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            return Bundle.main.bundlePath
+        }
+
+        let executable = ProcessInfo.processInfo.arguments.first ?? ProcessInfo.processInfo.processName
+        return URL(fileURLWithPath: executable).standardizedFileURL.path
     }
 
     public func apply(placements: [WindowPlacement], animated: Bool = false) throws {
@@ -72,13 +75,25 @@ public struct AccessibilityWindowController: Sendable {
         guard isTrusted() else {
             throw WindowManagerError.accessibilityNotGranted
         }
+        if !animated {
+            let pending = placements.filter { placement in
+                !frameClose(
+                    startingFrames[placement.window.windowID],
+                    placement.frame,
+                    threshold: 2
+                )
+            }
+            try applyInstant(pending)
+            return
+        }
+
         let (instant, animatedPlacements) = splitPlacements(
             placements,
             startingFrames: startingFrames,
             animationThreshold: 10
         )
         try applyInstant(instant)
-        guard animated, !animatedPlacements.isEmpty else { return }
+        guard !animatedPlacements.isEmpty else { return }
         try applyAnimated(
             placements: animatedPlacements,
             startingFrames: startingFrames,
@@ -88,8 +103,20 @@ public struct AccessibilityWindowController: Sendable {
     }
 
     private func applyInstant(_ placements: [WindowPlacement]) throws {
+        var appliedAny = false
+        var lastError: Error?
+
         for placement in placements {
-            try setFrame(placement.frame, for: placement.window)
+            do {
+                try setFrame(placement.frame, for: placement.window)
+                appliedAny = true
+            } catch {
+                lastError = error
+            }
+        }
+
+        if !appliedAny, let lastError {
+            throw lastError
         }
     }
 
@@ -141,6 +168,8 @@ public struct AccessibilityWindowController: Sendable {
     ) throws {
         guard steps > 0, !placements.isEmpty else { return }
         let stepDuration = duration / Double(steps)
+        var appliedAny = false
+        var lastError: Error?
 
         for step in 1 ... steps {
             let progress = Double(step) / Double(steps)
@@ -154,12 +183,21 @@ public struct AccessibilityWindowController: Sendable {
                     width: lerp(start.width, placement.frame.width, eased),
                     height: lerp(start.height, placement.frame.height, eased)
                 )
-                try setFrame(frame, for: placement.window)
+                do {
+                    try setFrame(frame, for: placement.window)
+                    appliedAny = true
+                } catch {
+                    lastError = error
+                }
             }
 
             if step < steps {
                 Thread.sleep(forTimeInterval: stepDuration)
             }
+        }
+
+        if !appliedAny, let lastError {
+            throw lastError
         }
     }
 
@@ -193,7 +231,11 @@ public struct AccessibilityWindowController: Sendable {
             throw WindowManagerError.windowNotFound(windowID: window.windowID)
         }
 
-        let position = CGPoint(x: frame.origin.x, y: frame.origin.y)
+        let accessibilityFrame = ScreenCoordinateConverter.flipVertically(
+            frame,
+            mainScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
+        )
+        let position = accessibilityFrame.origin
         guard let positionValue = axValue(position, type: .cgPoint) else {
             throw WindowManagerError.attributeSetFailed("kAXPositionAttribute")
         }
@@ -201,7 +243,7 @@ public struct AccessibilityWindowController: Sendable {
             throw WindowManagerError.attributeSetFailed("kAXPositionAttribute")
         }
 
-        let size = CGSize(width: frame.width, height: frame.height)
+        let size = accessibilityFrame.size
         guard let sizeValue = axValue(size, type: .cgSize) else {
             throw WindowManagerError.attributeSetFailed("kAXSizeAttribute")
         }
@@ -242,6 +284,11 @@ public struct AccessibilityWindowController: Sendable {
     }
 
     private func axWindowID(_ window: AXUIElement) -> UInt32? {
+        var windowID: CGWindowID = 0
+        if AXUIElementGetWindowID(window, &windowID) == .success {
+            return windowID
+        }
+
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, "AXWindowID" as CFString, &value) == .success,
               let number = value

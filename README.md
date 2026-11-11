@@ -20,23 +20,31 @@ macOS 下的轻量窗口管理器，采用 **二分法（BSP，Binary Space Part
 
 ```bash
 cd /Volumes/DataExt/workspace/yoo-app-windows-manager
-swift build
-swift run YooWindowsManager
+./Scripts/build-app.sh
+open .build/YooWindowsManager.app
 ```
 
 首次运行请在菜单「申请辅助功能权限」中完成授权。
 
 ## 使用
 
-点击菜单栏图标，选择 **启用** 或 **停用**。启用后会在**每块显示器内部**，对该屏上的窗口做螺旋二分：
+应用始终自动管理窗口。点击菜单栏图标并选择 **重新布局**，或按全局快捷键 **Control + Shift + R**，可立即在**每块显示器内部**重新执行布局：
+
+相邻窗口之间默认保留 10pt 间距，屏幕边缘保留 5pt。
+
+窗口顺序快捷键以当前聚焦窗口为对象：
+
+- **Control + Shift + Enter**：移到布局顺序第一位
+- **Control + Shift + I**：向前移动一位
+- **Control + Shift + J**：向后移动一位
 
 - 1 个：占满
 - 2 个：左右各半
 - 3 个：左 1 个，右侧上 / 下各 1 个
 - 4 个：左 1 个，右上 1 个，右下左右各 1 个
-- 更多：始终每次只切出 1 个窗口，左右 / 上下方向交替
+- 更多：始终每次只切出 1 个窗口，严格按 50/50 比例左右 / 上下交替二分
 
-若从命令行 `swift run` 启动，请在「辅助功能」列表中允许 `.build/debug/YooWindowsManager`（弹窗会显示完整路径）。
+请通过 `.build/YooWindowsManager.app` 启动。直接使用 `swift run` 会以裸可执行文件运行，macOS 可能不会在「辅助功能」列表中稳定显示应用条目。
 
 ## 架构
 

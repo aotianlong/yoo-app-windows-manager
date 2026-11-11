@@ -1,13 +1,18 @@
 import Carbon.HIToolbox
 import Foundation
-import YooWindowsManagerCore
 
 final class HotkeyService: @unchecked Sendable {
-    var onCommand: ((LayoutCommand) -> Void)?
+    var onRelayout: (() -> Void)?
+    var onPromoteFirst: (() -> Void)?
+    var onMoveUp: (() -> Void)?
+    var onMoveDown: (() -> Void)?
 
     private var eventHandler: EventHandlerRef?
     private var hotKeyRefs: [EventHotKeyRef] = []
-    private var commandTable: [UInt32: LayoutCommand] = [:]
+    private let relayoutHotKeyID: UInt32 = 1
+    private let promoteFirstHotKeyID: UInt32 = 2
+    private let moveUpHotKeyID: UInt32 = 3
+    private let moveDownHotKeyID: UInt32 = 4
 
     func start() {
         guard eventHandler == nil else { return }
@@ -28,12 +33,26 @@ final class HotkeyService: @unchecked Sendable {
             &eventHandler
         )
 
-        registerHotKey(id: 1, keyCode: UInt32(kVK_LeftArrow), modifiers: controlOption, command: .splitLeft)
-        registerHotKey(id: 2, keyCode: UInt32(kVK_RightArrow), modifiers: controlOption, command: .splitRight)
-        registerHotKey(id: 3, keyCode: UInt32(kVK_UpArrow), modifiers: controlOption, command: .splitTop)
-        registerHotKey(id: 4, keyCode: UInt32(kVK_DownArrow), modifiers: controlOption, command: .splitBottom)
-        registerHotKey(id: 5, keyCode: UInt32(kVK_ANSI_B), modifiers: controlOption, command: .balance)
-        registerHotKey(id: 6, keyCode: UInt32(kVK_ANSI_R), modifiers: controlOption, command: .reset)
+        registerHotKey(
+            id: relayoutHotKeyID,
+            keyCode: UInt32(kVK_ANSI_R),
+            modifiers: UInt32(controlKey | shiftKey)
+        )
+        registerHotKey(
+            id: promoteFirstHotKeyID,
+            keyCode: UInt32(kVK_Return),
+            modifiers: UInt32(controlKey | shiftKey)
+        )
+        registerHotKey(
+            id: moveUpHotKeyID,
+            keyCode: UInt32(kVK_ANSI_I),
+            modifiers: UInt32(controlKey | shiftKey)
+        )
+        registerHotKey(
+            id: moveDownHotKeyID,
+            keyCode: UInt32(kVK_ANSI_J),
+            modifiers: UInt32(controlKey | shiftKey)
+        )
     }
 
     deinit {
@@ -45,16 +64,13 @@ final class HotkeyService: @unchecked Sendable {
         }
     }
 
-    private let controlOption = UInt32(controlKey | optionKey)
-
-    private func registerHotKey(id: UInt32, keyCode: UInt32, modifiers: UInt32, command: LayoutCommand) {
+    private func registerHotKey(id: UInt32, keyCode: UInt32, modifiers: UInt32) {
         var hotKeyRef: EventHotKeyRef?
-        var hotKeyID = EventHotKeyID(signature: OSType(0x594F4F57), id: id)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x594F4F57), id: id)
         RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         if let hotKeyRef {
             hotKeyRefs.append(hotKeyRef)
         }
-        commandTable[id] = command
     }
 
     private func handle(event: EventRef) {
@@ -69,7 +85,17 @@ final class HotkeyService: @unchecked Sendable {
             &hotKeyID
         )
         guard status == noErr else { return }
-        guard let command = commandTable[hotKeyID.id] else { return }
-        onCommand?(command)
+        switch hotKeyID.id {
+        case relayoutHotKeyID:
+            onRelayout?()
+        case promoteFirstHotKeyID:
+            onPromoteFirst?()
+        case moveUpHotKeyID:
+            onMoveUp?()
+        case moveDownHotKeyID:
+            onMoveDown?()
+        default:
+            break
+        }
     }
 }

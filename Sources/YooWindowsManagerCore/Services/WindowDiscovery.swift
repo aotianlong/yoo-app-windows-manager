@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -26,6 +27,8 @@ public struct WindowDiscovery: Sendable {
         }
 
         var results: [OnScreenWindow] = []
+        var checkedPIDs: Set<pid_t> = []
+        var standardWindowIDsByPID: [pid_t: Set<CGWindowID>] = [:]
         for info in infoList {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             guard let windowID = info[kCGWindowNumber as String] as? UInt32 else { continue }
@@ -37,7 +40,17 @@ public struct WindowDiscovery: Sendable {
             let bounds = cgBounds(from: info[kCGWindowBounds as String] as? [String: CGFloat] ?? [:])
             guard bounds.width > 120, bounds.height > 80 else { continue }
 
-            if ownerName == "Window Server" || ownerName == "Dock" || ownerName == "Control Centre" {
+            if ownerName == "Window Server" || ownerName == "Dock" || ownerName == "Control Centre"
+                || ownerName == "universalAccessAuthWarn"
+            {
+                continue
+            }
+
+            if !checkedPIDs.contains(ownerPID) {
+                checkedPIDs.insert(ownerPID)
+                standardWindowIDsByPID[ownerPID] = standardWindowIDs(for: ownerPID)
+            }
+            if let standardIDs = standardWindowIDsByPID[ownerPID], !standardIDs.contains(windowID) {
                 continue
             }
 
@@ -46,6 +59,26 @@ public struct WindowDiscovery: Sendable {
         }
 
         return results
+    }
+
+    private func standardWindowIDs(for pid: pid_t) -> Set<CGWindowID>? {
+        let appElement = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
+              let windows = value as? [AXUIElement]
+        else { return nil }
+
+        return Set(windows.compactMap { window in
+            var subroleValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subroleValue) == .success,
+                  let subrole = subroleValue as? String,
+                  subrole == kAXStandardWindowSubrole
+            else { return nil }
+
+            var windowID: CGWindowID = 0
+            guard AXUIElementGetWindowID(window, &windowID) == .success else { return nil }
+            return windowID
+        })
     }
 
     public func windows(on screen: NSScreen, excludingPID: pid_t? = nil) -> [WindowReference] {
@@ -83,12 +116,9 @@ public struct WindowDiscovery: Sendable {
     }
 
     private func cocoaBounds(from quartzBounds: CGRect) -> CGRect {
-        let flippedMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? 0
-        return CGRect(
-            x: quartzBounds.origin.x,
-            y: flippedMaxY - quartzBounds.origin.y - quartzBounds.height,
-            width: quartzBounds.width,
-            height: quartzBounds.height
+        ScreenCoordinateConverter.flipVertically(
+            quartzBounds,
+            mainScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
         )
     }
 

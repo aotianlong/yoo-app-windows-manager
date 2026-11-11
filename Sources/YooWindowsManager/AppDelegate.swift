@@ -3,52 +3,77 @@ import YooWindowsManagerCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let minimumSwapDragDistance: CGFloat = 80
+
+    private enum WindowOrderChange {
+        case first
+        case up
+        case down
+    }
+
     private let store = WorkspaceStore()
     private let engine = LayoutEngine()
     private let discovery = WindowDiscovery()
     private let ax = AccessibilityWindowController()
     private let interactionPause = InteractionPauseMonitor()
+    private let hotkeys = HotkeyService()
+    private let dragFeedback = DragFeedbackOverlayController()
 
     private var statusItem: NSStatusItem?
-    private var toggleItem: NSMenuItem?
     private var autoLayoutTimer: Timer?
     private var lastSignature = ""
     private var lastScreenByWindow: [UInt32: String] = [:]
     private var screenAssignmentAtDragStart = ""
+    private var draggedWindowID: UInt32?
+    private var draggedScreenName: String?
+    private var draggedWindowInitialFrame: CGRect?
+    private var dragStartPoint: CGPoint?
     private var isApplyingLayout = false
-
-    private let enabledDefaultsKey = "yoo.windowsManager.enabled"
-    private var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: enabledDefaultsKey) }
-        set {
-            UserDefaults.standard.set(newValue, forKey: enabledDefaultsKey)
-            refreshUI()
-            if newValue {
-                startAutoLayout()
-            } else {
-                stopAutoLayout()
-            }
-        }
-    }
 
     private var ownPID: pid_t { ProcessInfo.processInfo.processIdentifier }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        if UserDefaults.standard.object(forKey: enabledDefaultsKey) == nil {
-            UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
-        }
         setupStatusItem()
-        refreshUI()
-        if isEnabled {
-            startAutoLayout()
+        startAutoLayout()
+        hotkeys.onRelayout = { [weak self] in
+            Task { @MainActor in
+                self?.relayoutNow()
+            }
+        }
+        hotkeys.onPromoteFirst = { [weak self] in
+            Task { @MainActor in
+                self?.reorderFocusedWindow(.first)
+            }
+        }
+        hotkeys.onMoveUp = { [weak self] in
+            Task { @MainActor in
+                self?.reorderFocusedWindow(.up)
+            }
+        }
+        hotkeys.onMoveDown = { [weak self] in
+            Task { @MainActor in
+                self?.reorderFocusedWindow(.down)
+            }
+        }
+        hotkeys.start()
+        if !ax.isTrusted() {
+            DispatchQueue.main.async { [weak self] in
+                _ = self?.ensureAccessibilityPermission()
+            }
         }
         interactionPause.start()
-        interactionPause.onDragBegan = { [weak self] in
-            self?.screenAssignmentAtDragStart = self?.screenAssignmentSignature() ?? ""
+        interactionPause.onDragBegan = { [weak self] startPoint in
+            self?.handleDragBegan(startPoint: startPoint)
         }
-        interactionPause.onInteractionEnded = { [weak self] in
-            self?.handleInteractionEnded()
+        interactionPause.onDragChanged = { [weak self] currentPoint in
+            self?.handleDragChanged(currentPoint: currentPoint)
+        }
+        interactionPause.onDragEndedImmediately = { [weak self] in
+            self?.dragFeedback.hide()
+        }
+        interactionPause.onInteractionEnded = { [weak self] dropPoint in
+            self?.handleInteractionEnded(dropPoint: dropPoint)
         }
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -63,35 +88,217 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem?.button else { return }
         button.imagePosition = .imageOnly
+        button.image = MenuBarIcon.make(enabled: true)
 
         let menu = NSMenu()
-        toggleItem = NSMenuItem(title: "停用", action: #selector(toggleEnabled), keyEquivalent: "")
-        toggleItem?.target = self
-        menu.addItem(toggleItem!)
+        let relayoutItem = NSMenuItem(title: "重新布局", action: #selector(relayoutNow), keyEquivalent: "r")
+        relayoutItem.keyEquivalentModifierMask = [.control, .shift]
+        relayoutItem.target = self
+        menu.addItem(relayoutItem)
+        menu.addItem(.separator())
+
+        let accessibilityItem = NSMenuItem(
+            title: "申请辅助功能权限…",
+            action: #selector(requestAccessibilityPermission),
+            keyEquivalent: ""
+        )
+        accessibilityItem.target = self
+        menu.addItem(accessibilityItem)
+
+        menu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "退出", action: #selector(quitApplication), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
         statusItem?.menu = menu
     }
 
-    @objc private func toggleEnabled() {
-        if !isEnabled {
-            guard ensureAccessibilityPermission() else { return }
-            isEnabled = true
-            relayoutAllScreens(animated: true)
+    @objc private func relayoutNow() {
+        guard ensureAccessibilityPermission() else { return }
+        relayoutAllScreensIfNeeded(force: true, animated: true)
+    }
+
+    private func reorderFocusedWindow(_ change: WindowOrderChange) {
+        guard ensureAccessibilityPermission() else { return }
+        guard let focused = discovery.frontmostWindow(excludingPID: ownPID) else { return }
+        guard let screen = NSScreen.screens.first(where: { screen in
+            discovery.windows(on: screen, excludingPID: ownPID)
+                .contains { $0.windowID == focused.windowID }
+        }) else { return }
+
+        let discovered = discovery.windows(on: screen, excludingPID: ownPID)
+        var workspace = store.workspace(for: screen)
+        var ordered = engine.stabilize(discovered: discovered, previousOrder: workspace.windowOrder)
+        guard let index = ordered.firstIndex(where: { $0.windowID == focused.windowID }) else { return }
+
+        switch change {
+        case .first:
+            let window = ordered.remove(at: index)
+            ordered.insert(window, at: 0)
+        case .up:
+            guard index > 0 else { return }
+            ordered.swapAt(index, index - 1)
+        case .down:
+            guard index + 1 < ordered.count else { return }
+            ordered.swapAt(index, index + 1)
+        }
+
+        workspace.windowOrder = ordered.map(\.windowID)
+        store.update(workspace)
+        relayoutAllScreensIfNeeded(force: true, animated: true)
+    }
+
+    @objc private func requestAccessibilityPermission() {
+        guard ax.isTrusted() else {
+            _ = ensureAccessibilityPermission()
             return
         }
-        isEnabled = false
+
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "辅助功能权限已授权"
+        alert.informativeText = "本程序已经可以管理窗口的位置和大小。"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "好")
+        alert.runModal()
+    }
+
+    @objc private func quitApplication() {
+        NSApp.terminate(nil)
     }
 
     @objc private func workspaceDidChange() {
-        guard isEnabled else { return }
         relayoutAllScreensIfNeeded(animated: false)
     }
 
-    private func handleInteractionEnded() {
+    private func handleDragBegan(startPoint: CGPoint) {
+        screenAssignmentAtDragStart = screenAssignmentSignature()
+        draggedWindowID = nil
+        draggedScreenName = nil
+        draggedWindowInitialFrame = nil
+        dragStartPoint = startPoint
+
+        guard let window = discovery.frontmostWindow(excludingPID: ownPID) else { return }
+        guard let screen = NSScreen.screens.first(where: { screen in
+            discovery.windows(on: screen, excludingPID: ownPID)
+                .contains { $0.windowID == window.windowID }
+        }) else { return }
+
+        draggedWindowID = window.windowID
+        draggedScreenName = screen.localizedName
+        draggedWindowInitialFrame = discovery.cocoaFrame(
+            for: window.windowID,
+            excludingPID: ownPID
+        )
+    }
+
+    private func handleDragChanged(currentPoint: CGPoint) {
+        guard let draggedWindowID,
+              let draggedScreenName,
+              let initialFrame = draggedWindowInitialFrame,
+              let currentFrame = discovery.cocoaFrame(for: draggedWindowID, excludingPID: ownPID),
+              let movedDistance = windowDragDistance(from: initialFrame, to: currentFrame),
+              movedDistance > 1,
+              let startPoint = dragStartPoint,
+              let screen = NSScreen.screens.first(where: { $0.localizedName == draggedScreenName })
+        else {
+            dragFeedback.hide()
+            return
+        }
+
+        let workspace = store.workspace(for: screen)
+        let rawPlacements = workspace.root.resolvedPlacements(in: workspace.usableFrame)
+        let visiblePlacements = workspace.placements()
+        guard let sourceFrame = visiblePlacements
+            .first(where: { $0.window.windowID == draggedWindowID })?
+            .frame
+        else {
+            dragFeedback.hide()
+            return
+        }
+
+        let dragDistance = hypot(currentPoint.x - startPoint.x, currentPoint.y - startPoint.y)
+        let targetID = rawPlacements
+            .first(where: { $0.window.windowID != draggedWindowID && $0.frame.contains(currentPoint) })?
+            .window.windowID
+
+        if dragDistance >= Self.minimumSwapDragDistance,
+           let targetID,
+           let targetFrame = visiblePlacements.first(where: { $0.window.windowID == targetID })?.frame
+        {
+            dragFeedback.show(frame: targetFrame, state: .swap)
+        } else {
+            dragFeedback.show(frame: sourceFrame, state: .restore)
+        }
+    }
+
+    private func handleInteractionEnded(dropPoint: CGPoint) {
+        defer {
+            draggedWindowID = nil
+            draggedScreenName = nil
+            draggedWindowInitialFrame = nil
+            dragStartPoint = nil
+        }
+
         let assignmentNow = screenAssignmentSignature()
         let crossDisplay = assignmentNow != screenAssignmentAtDragStart
-        guard crossDisplay else { return }
+        if crossDisplay {
+            relayoutAllScreensIfNeeded(force: true, animated: true)
+            return
+        }
 
+        guard let draggedWindowID,
+              let draggedScreenName,
+              let initialFrame = draggedWindowInitialFrame,
+              let finalFrame = discovery.cocoaFrame(for: draggedWindowID, excludingPID: ownPID),
+              let dragDistance = windowDragDistance(from: initialFrame, to: finalFrame),
+              dragDistance > 1,
+              let startPoint = dragStartPoint,
+              let screen = NSScreen.screens.first(where: { $0.localizedName == draggedScreenName })
+        else { return }
+
+        let pointerDistance = hypot(dropPoint.x - startPoint.x, dropPoint.y - startPoint.y)
+        if pointerDistance >= Self.minimumSwapDragDistance {
+            swapDraggedWindow(draggedWindowID, on: screen, at: dropPoint)
+        }
+
+        // 没达到交换阈值或没有命中其他槽位时，按原顺序恢复窗口位置。
         relayoutAllScreensIfNeeded(force: true, animated: true)
+    }
+
+    private func windowDragDistance(from initialFrame: CGRect, to finalFrame: CGRect) -> CGFloat? {
+        let sizeChanged = abs(finalFrame.width - initialFrame.width) > 2
+            || abs(finalFrame.height - initialFrame.height) > 2
+        guard !sizeChanged else { return nil }
+        return hypot(
+            finalFrame.origin.x - initialFrame.origin.x,
+            finalFrame.origin.y - initialFrame.origin.y
+        )
+    }
+
+    /// 鼠标松开在哪个原始二分槽位，就与该槽位里的窗口交换顺序。
+    @discardableResult
+    private func swapDraggedWindow(_ draggedWindowID: UInt32, on screen: NSScreen, at dropPoint: CGPoint) -> Bool {
+        guard screen.frame.contains(dropPoint) else { return false }
+
+        let discovered = discovery.windows(on: screen, excludingPID: ownPID)
+        var workspace = store.workspace(for: screen)
+        var ordered = engine.stabilize(discovered: discovered, previousOrder: workspace.windowOrder)
+        guard let draggedIndex = ordered.firstIndex(where: { $0.windowID == draggedWindowID }) else {
+            return false
+        }
+
+        // 使用未 inset 的槽位命中测试，窗口之间的 10pt 间距也归属于相邻槽位。
+        guard let targetID = workspace.root
+            .resolvedPlacements(in: workspace.usableFrame)
+            .first(where: { $0.window.windowID != draggedWindowID && $0.frame.contains(dropPoint) })?
+            .window.windowID,
+              let targetIndex = ordered.firstIndex(where: { $0.windowID == targetID })
+        else { return false }
+
+        ordered.swapAt(draggedIndex, targetIndex)
+        workspace.windowOrder = ordered.map(\.windowID)
+        store.update(workspace)
+        return true
     }
 
     private func startAutoLayout() {
@@ -109,10 +316,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastSignature = ""
         lastScreenByWindow = [:]
         screenAssignmentAtDragStart = ""
+        draggedWindowID = nil
+        draggedScreenName = nil
+        draggedWindowInitialFrame = nil
+        dragStartPoint = nil
     }
 
     private func relayoutAllScreensIfNeeded(force: Bool = false, animated: Bool = false) {
-        guard isEnabled, ax.isTrusted(), !isApplyingLayout else { return }
+        guard ax.isTrusted(), !isApplyingLayout else { return }
         guard !interactionPause.shouldSuppressLayout else { return }
         let signature = windowSetSignature()
         if !force {
@@ -175,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func relayoutAllScreens(animated: Bool) {
-        guard isEnabled, !isApplyingLayout else { return }
+        guard !isApplyingLayout else { return }
         guard ax.isTrusted() else {
             _ = ensureAccessibilityPermission()
             return
@@ -237,7 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         请打开开关，并在列表中允许本程序：
         \(ax.trustedAppPath)
 
-        若列表中没有，请点「+」手动添加以上路径。授权后再次点击菜单栏图标启用。
+        若列表中没有，请点「+」手动添加以上路径。授权后点击菜单栏中的「重新布局」。
         """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "打开系统设置")
@@ -249,8 +460,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    private func refreshUI() {
-        statusItem?.button?.image = MenuBarIcon.make(enabled: isEnabled)
-        toggleItem?.title = isEnabled ? "停用" : "启用"
-    }
 }

@@ -85,8 +85,8 @@ public indirect enum LayoutNode: Codable, Sendable, Equatable {
                 return first.resolvedPlacements(in: left) + second.resolvedPlacements(in: right)
             case .vertical:
                 let h = area.height * r
-                let lower = CGRect(x: area.minX, y: area.minY, width: area.width, height: h)
-                let upper = CGRect(x: area.minX, y: area.minY + h, width: area.width, height: area.height - h)
+                let lower = CGRect(x: area.minX, y: area.minY, width: area.width, height: area.height - h)
+                let upper = CGRect(x: area.minX, y: area.maxY - h, width: area.width, height: h)
                 return first.resolvedPlacements(in: upper) + second.resolvedPlacements(in: lower)
             }
         }

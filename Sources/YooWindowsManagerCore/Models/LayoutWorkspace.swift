@@ -3,6 +3,8 @@ import Foundation
 
 /// 单个显示器上的二分布局工作区。
 public struct LayoutWorkspace: Codable, Sendable, Equatable, Identifiable {
+    public static let defaultWindowGap: CGFloat = 10
+
     public let id: String
     public var screenName: String
     public var usableFrame: CGRect
@@ -55,8 +57,14 @@ public struct LayoutWorkspace: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
-    public func placements() -> [WindowPlacement] {
-        root.resolvedPlacements(in: usableFrame)
+    public func placements(windowGap: CGFloat = LayoutWorkspace.defaultWindowGap) -> [WindowPlacement] {
+        let inset = max(0, windowGap) / 2
+        return root.resolvedPlacements(in: usableFrame).map { placement in
+            WindowPlacement(
+                window: placement.window,
+                frame: placement.frame.insetBy(dx: inset, dy: inset)
+            )
+        }
     }
 
     public func contains(windowID: UInt32) -> Bool {
