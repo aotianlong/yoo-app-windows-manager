@@ -3,6 +3,7 @@ import AppKit
 /// 在用户拖动窗口时暂停自动布局，松手后延迟再应用。
 @MainActor
 final class InteractionPauseMonitor {
+    var onDragBegan: (() -> Void)?
     var onInteractionEnded: (() -> Void)?
 
     private var isDragging = false
@@ -20,8 +21,13 @@ final class InteractionPauseMonitor {
 
         globalDragMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged]) { [weak self] _ in
             Task { @MainActor in
-                self?.isDragging = true
-                self?.endWorkItem?.cancel()
+                guard let self else { return }
+                let wasDragging = self.isDragging
+                self.isDragging = true
+                self.endWorkItem?.cancel()
+                if !wasDragging {
+                    self.onDragBegan?()
+                }
             }
         }
         globalUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in

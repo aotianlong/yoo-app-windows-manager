@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var autoLayoutTimer: Timer?
     private var lastSignature = ""
     private var lastScreenByWindow: [UInt32: String] = [:]
+    private var screenAssignmentAtDragStart = ""
     private var isApplyingLayout = false
 
     private let enabledDefaultsKey = "yoo.windowsManager.enabled"
@@ -43,8 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startAutoLayout()
         }
         interactionPause.start()
+        interactionPause.onDragBegan = { [weak self] in
+            self?.screenAssignmentAtDragStart = self?.screenAssignmentSignature() ?? ""
+        }
         interactionPause.onInteractionEnded = { [weak self] in
-            self?.relayoutAllScreensIfNeeded(force: true, animated: true)
+            self?.handleInteractionEnded()
         }
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -79,14 +83,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func workspaceDidChange() {
         guard isEnabled else { return }
-        relayoutAllScreensIfNeeded(animated: true)
+        relayoutAllScreensIfNeeded(animated: false)
+    }
+
+    private func handleInteractionEnded() {
+        let assignmentNow = screenAssignmentSignature()
+        let crossDisplay = assignmentNow != screenAssignmentAtDragStart
+        guard crossDisplay else { return }
+
+        relayoutAllScreensIfNeeded(force: true, animated: true)
     }
 
     private func startAutoLayout() {
         stopAutoLayout()
-        autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: 1.25, repeats: true) { [weak self] _ in
+        autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.relayoutAllScreensIfNeeded(animated: true)
+                self?.relayoutAllScreensIfNeeded(animated: false)
             }
         }
     }
@@ -96,12 +108,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoLayoutTimer = nil
         lastSignature = ""
         lastScreenByWindow = [:]
+        screenAssignmentAtDragStart = ""
     }
 
     private func relayoutAllScreensIfNeeded(force: Bool = false, animated: Bool = false) {
         guard isEnabled, ax.isTrusted(), !isApplyingLayout else { return }
         guard !interactionPause.shouldSuppressLayout else { return }
-        let signature = currentLayoutSignature()
+        let signature = windowSetSignature()
         if !force {
             guard signature != lastSignature else { return }
         }
@@ -109,15 +122,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         relayoutAllScreens(animated: animated)
     }
 
-    private func currentLayoutSignature() -> String {
+    private func windowSetSignature() -> String {
         store.syncScreens()
-        reconcileMovedWindows()
         return NSScreen.screens
             .map { screen in
                 let windows = discovery.windows(on: screen, excludingPID: ownPID)
                 return "\(screen.localizedName):\(windows.map(\.windowID).sorted())"
             }
             .joined(separator: "|")
+    }
+
+    private func screenAssignmentSignature() -> String {
+        var pairs: [String] = []
+        for screen in NSScreen.screens {
+            for window in discovery.windows(on: screen, excludingPID: ownPID) {
+                pairs.append("\(window.windowID)@\(screen.localizedName)")
+            }
+        }
+        return pairs.sorted().joined(separator: ",")
     }
 
     /// 窗口拖到另一块屏后，从旧 workspace 的 order 中移除，并挂到新屏。

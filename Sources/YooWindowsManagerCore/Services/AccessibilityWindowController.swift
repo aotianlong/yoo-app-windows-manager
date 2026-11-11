@@ -61,14 +61,7 @@ public struct AccessibilityWindowController: Sendable {
             throw WindowManagerError.accessibilityNotGranted
         }
 
-        if animated {
-            try applyAnimated(placements: placements, duration: 0.28, steps: 16)
-            return
-        }
-
-        for placement in placements {
-            try setFrame(placement.frame, for: placement.window)
-        }
+        try apply(placements: placements, startingFrames: [:], animated: animated)
     }
 
     public func apply(
@@ -79,11 +72,65 @@ public struct AccessibilityWindowController: Sendable {
         guard isTrusted() else {
             throw WindowManagerError.accessibilityNotGranted
         }
-        guard animated else {
-            try apply(placements: placements, animated: false)
-            return
+        let (instant, animatedPlacements) = splitPlacements(
+            placements,
+            startingFrames: startingFrames,
+            animationThreshold: 10
+        )
+        try applyInstant(instant)
+        guard animated, !animatedPlacements.isEmpty else { return }
+        try applyAnimated(
+            placements: animatedPlacements,
+            startingFrames: startingFrames,
+            duration: 0.22,
+            steps: 12
+        )
+    }
+
+    private func applyInstant(_ placements: [WindowPlacement]) throws {
+        for placement in placements {
+            try setFrame(placement.frame, for: placement.window)
         }
-        try applyAnimated(placements: placements, startingFrames: startingFrames, duration: 0.28, steps: 16)
+    }
+
+    private func splitPlacements(
+        _ placements: [WindowPlacement],
+        startingFrames: [UInt32: CGRect],
+        animationThreshold: CGFloat
+    ) -> (instant: [WindowPlacement], animated: [WindowPlacement]) {
+        var instant: [WindowPlacement] = []
+        var animated: [WindowPlacement] = []
+        for placement in placements {
+            let current = startingFrames[placement.window.windowID]
+            if frameClose(current, placement.frame, threshold: 2) {
+                continue
+            }
+            if shouldAnimate(from: current, to: placement.frame, threshold: animationThreshold) {
+                animated.append(placement)
+            } else {
+                instant.append(placement)
+            }
+        }
+        return (instant, animated)
+    }
+
+    private func shouldAnimate(from current: CGRect?, to target: CGRect, threshold: CGFloat) -> Bool {
+        guard let current else { return true }
+        let delta = max(
+            abs(current.origin.x - target.origin.x),
+            abs(current.origin.y - target.origin.y),
+            abs(current.width - target.width),
+            abs(current.height - target.height)
+        )
+        return delta > threshold
+    }
+
+    private func frameClose(_ lhs: CGRect?, _ rhs: CGRect, threshold: CGFloat) -> Bool {
+        guard let lhs else { return false }
+        return abs(lhs.origin.x - rhs.origin.x) <= threshold
+            && abs(lhs.origin.y - rhs.origin.y) <= threshold
+            && abs(lhs.width - rhs.width) <= threshold
+            && abs(lhs.height - rhs.height) <= threshold
     }
 
     private func applyAnimated(
@@ -92,7 +139,7 @@ public struct AccessibilityWindowController: Sendable {
         duration: TimeInterval,
         steps: Int
     ) throws {
-        guard steps > 0 else { return }
+        guard steps > 0, !placements.isEmpty else { return }
         let stepDuration = duration / Double(steps)
 
         for step in 1 ... steps {
