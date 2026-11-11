@@ -8,19 +8,23 @@ public struct LayoutWorkspace: Codable, Sendable, Equatable, Identifiable {
     public var usableFrame: CGRect
     public var root: LayoutNode
     public var focusedWindowID: UInt32?
+    /// 稳定顺序，避免拖动时按坐标重排导致布局树抖动。
+    public var windowOrder: [UInt32]
 
     public init(
         id: String,
         screenName: String,
         usableFrame: CGRect,
         root: LayoutNode = .empty,
-        focusedWindowID: UInt32? = nil
+        focusedWindowID: UInt32? = nil,
+        windowOrder: [UInt32] = []
     ) {
         self.id = id
         self.screenName = screenName
         self.usableFrame = usableFrame
         self.root = root
         self.focusedWindowID = focusedWindowID
+        self.windowOrder = windowOrder
     }
 
     public mutating func apply(split direction: SplitDirection, to window: WindowReference, ratio: Double = LayoutNode.defaultRatio) {

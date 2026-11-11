@@ -7,11 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engine = LayoutEngine()
     private let discovery = WindowDiscovery()
     private let ax = AccessibilityWindowController()
+    private let interactionPause = InteractionPauseMonitor()
 
     private var statusItem: NSStatusItem?
     private var toggleItem: NSMenuItem?
     private var autoLayoutTimer: Timer?
     private var lastSignature = ""
+    private var lastScreenByWindow: [UInt32: String] = [:]
+    private var isApplyingLayout = false
 
     private let enabledDefaultsKey = "yoo.windowsManager.enabled"
     private var isEnabled: Bool {
@@ -39,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isEnabled {
             startAutoLayout()
         }
+        interactionPause.start()
+        interactionPause.onInteractionEnded = { [weak self] in
+            self?.relayoutAllScreensIfNeeded(force: true, animated: true)
+        }
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
@@ -64,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !isEnabled {
             guard ensureAccessibilityPermission() else { return }
             isEnabled = true
-            relayoutAllScreens()
+            relayoutAllScreens(animated: true)
             return
         }
         isEnabled = false
@@ -72,14 +79,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func workspaceDidChange() {
         guard isEnabled else { return }
-        relayoutAllScreens()
+        relayoutAllScreensIfNeeded(animated: true)
     }
 
     private func startAutoLayout() {
         stopAutoLayout()
-        autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: 1.25, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.relayoutAllScreensIfNeeded()
+                self?.relayoutAllScreensIfNeeded(animated: true)
             }
         }
     }
@@ -88,18 +95,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoLayoutTimer?.invalidate()
         autoLayoutTimer = nil
         lastSignature = ""
+        lastScreenByWindow = [:]
     }
 
-    private func relayoutAllScreensIfNeeded() {
-        guard isEnabled, ax.isTrusted() else { return }
+    private func relayoutAllScreensIfNeeded(force: Bool = false, animated: Bool = false) {
+        guard isEnabled, ax.isTrusted(), !isApplyingLayout else { return }
+        guard !interactionPause.shouldSuppressLayout else { return }
         let signature = currentLayoutSignature()
-        guard signature != lastSignature else { return }
+        if !force {
+            guard signature != lastSignature else { return }
+        }
         lastSignature = signature
-        relayoutAllScreens()
+        relayoutAllScreens(animated: animated)
     }
 
     private func currentLayoutSignature() -> String {
         store.syncScreens()
+        reconcileMovedWindows()
         return NSScreen.screens
             .map { screen in
                 let windows = discovery.windows(on: screen, excludingPID: ownPID)
@@ -108,30 +120,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .joined(separator: "|")
     }
 
-    private func relayoutAllScreens() {
-        guard isEnabled else { return }
+    /// 窗口拖到另一块屏后，从旧 workspace 的 order 中移除，并挂到新屏。
+    private func reconcileMovedWindows() {
+        var currentByWindow: [UInt32: String] = [:]
+        for screen in NSScreen.screens {
+            let name = screen.localizedName
+            for window in discovery.windows(on: screen, excludingPID: ownPID) {
+                currentByWindow[window.windowID] = name
+            }
+        }
+
+        for screen in NSScreen.screens {
+            var workspace = store.workspace(for: screen)
+            let onScreen = Set(
+                discovery.windows(on: screen, excludingPID: ownPID).map(\.windowID)
+            )
+            workspace.windowOrder = workspace.windowOrder.filter { onScreen.contains($0) }
+            store.update(workspace)
+        }
+
+        for (windowID, screenName) in currentByWindow {
+            if let previous = lastScreenByWindow[windowID], previous != screenName {
+                guard let screen = NSScreen.screens.first(where: { $0.localizedName == screenName }) else { continue }
+                var workspace = store.workspace(for: screen)
+                workspace.windowOrder.removeAll { $0 == windowID }
+                workspace.windowOrder.insert(windowID, at: 0)
+                store.update(workspace)
+            }
+        }
+
+        lastScreenByWindow = currentByWindow
+    }
+
+    private func relayoutAllScreens(animated: Bool) {
+        guard isEnabled, !isApplyingLayout else { return }
         guard ax.isTrusted() else {
             _ = ensureAccessibilityPermission()
             return
         }
 
+        isApplyingLayout = true
+        defer { isApplyingLayout = false }
+
         store.syncScreens()
+        reconcileMovedWindows()
+
         var hadError = false
+        var allPlacements: [WindowPlacement] = []
+        let startingFrames = discovery.cocoaFramesByID(excludingPID: ownPID)
 
         for screen in NSScreen.screens {
-            let windows = discovery.windows(on: screen, excludingPID: ownPID)
-            guard !windows.isEmpty else { continue }
-
+            let discovered = discovery.windows(on: screen, excludingPID: ownPID)
             var workspace = store.workspace(for: screen)
-            engine.applyAutoLayout(workspace: &workspace, windows: windows)
-            let placements = workspace.placements()
 
-            do {
-                try ax.apply(placements: placements)
+            if discovered.isEmpty {
+                workspace.root = .empty
+                workspace.windowOrder = []
+                workspace.focusedWindowID = nil
                 store.update(workspace)
-            } catch {
-                hadError = true
+                continue
             }
+
+            let windows = engine.stabilize(discovered: discovered, previousOrder: workspace.windowOrder)
+            engine.applyAutoLayout(workspace: &workspace, windows: windows)
+            allPlacements.append(contentsOf: workspace.placements())
+            store.update(workspace)
+        }
+
+        guard !allPlacements.isEmpty else { return }
+
+        do {
+            try ax.apply(placements: allPlacements, startingFrames: startingFrames, animated: animated)
+        } catch {
+            hadError = true
         }
 
         if hadError, !ax.isTrusted() {

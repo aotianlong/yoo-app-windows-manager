@@ -56,14 +56,68 @@ public struct AccessibilityWindowController: Sendable {
             : Bundle.main.bundlePath
     }
 
-    public func apply(placements: [WindowPlacement]) throws {
+    public func apply(placements: [WindowPlacement], animated: Bool = false) throws {
         guard isTrusted() else {
             throw WindowManagerError.accessibilityNotGranted
+        }
+
+        if animated {
+            try applyAnimated(placements: placements, duration: 0.28, steps: 16)
+            return
         }
 
         for placement in placements {
             try setFrame(placement.frame, for: placement.window)
         }
+    }
+
+    public func apply(
+        placements: [WindowPlacement],
+        startingFrames: [UInt32: CGRect],
+        animated: Bool
+    ) throws {
+        guard isTrusted() else {
+            throw WindowManagerError.accessibilityNotGranted
+        }
+        guard animated else {
+            try apply(placements: placements, animated: false)
+            return
+        }
+        try applyAnimated(placements: placements, startingFrames: startingFrames, duration: 0.28, steps: 16)
+    }
+
+    private func applyAnimated(
+        placements: [WindowPlacement],
+        startingFrames: [UInt32: CGRect] = [:],
+        duration: TimeInterval,
+        steps: Int
+    ) throws {
+        guard steps > 0 else { return }
+        let stepDuration = duration / Double(steps)
+
+        for step in 1 ... steps {
+            let progress = Double(step) / Double(steps)
+            let eased = 1 - pow(1 - progress, 3)
+
+            for placement in placements {
+                let start = startingFrames[placement.window.windowID] ?? placement.frame
+                let frame = CGRect(
+                    x: lerp(start.origin.x, placement.frame.origin.x, eased),
+                    y: lerp(start.origin.y, placement.frame.origin.y, eased),
+                    width: lerp(start.width, placement.frame.width, eased),
+                    height: lerp(start.height, placement.frame.height, eased)
+                )
+                try setFrame(frame, for: placement.window)
+            }
+
+            if step < steps {
+                Thread.sleep(forTimeInterval: stepDuration)
+            }
+        }
+    }
+
+    private func lerp(_ from: CGFloat, _ to: CGFloat, _ t: Double) -> CGFloat {
+        from + (to - from) * t
     }
 
     public func focus(window: WindowReference) throws {

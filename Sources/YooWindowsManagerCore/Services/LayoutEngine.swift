@@ -35,7 +35,27 @@ public struct LayoutEngine: Sendable {
 
     public func applyAutoLayout(workspace: inout LayoutWorkspace, windows: [WindowReference]) {
         workspace.root = autoLayout(windows: windows)
+        workspace.windowOrder = windows.map(\.windowID)
         workspace.focusedWindowID = windows.last?.windowID
+    }
+
+    /// 保留已有顺序，仅追加/移除窗口，不因拖动中的坐标变化重排。
+    public func stabilize(discovered: [WindowReference], previousOrder: [UInt32]) -> [WindowReference] {
+        if previousOrder.isEmpty {
+            return discovered
+        }
+        let lookup = Dictionary(uniqueKeysWithValues: discovered.map { ($0.windowID, $0) })
+        var ordered: [WindowReference] = []
+        for id in previousOrder {
+            if let window = lookup[id] {
+                ordered.append(window)
+            }
+        }
+        let newcomers = discovered
+            .filter { !previousOrder.contains($0.windowID) }
+            .sorted { $0.windowID < $1.windowID }
+        ordered.append(contentsOf: newcomers)
+        return ordered
     }
 
     public func apply(command: LayoutCommand, workspace: inout LayoutWorkspace, focused: WindowReference) {

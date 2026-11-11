@@ -94,7 +94,34 @@ public struct WindowDiscovery: Sendable {
 
     private func screenContainingWindow(bounds: CGRect) -> NSScreen? {
         let cocoa = cocoaBounds(from: bounds)
-        let center = CGPoint(x: cocoa.midX, y: cocoa.midY)
-        return NSScreen.screens.first { $0.frame.contains(center) }
+        var bestScreen: NSScreen?
+        var bestArea: CGFloat = 0
+
+        for screen in NSScreen.screens {
+            let intersection = screen.frame.intersection(cocoa)
+            guard intersection.width > 0, intersection.height > 0 else { continue }
+            let area = intersection.width * intersection.height
+            if area > bestArea {
+                bestArea = area
+                bestScreen = screen
+            }
+        }
+
+        return bestScreen
+    }
+
+    public func cocoaFrame(for windowID: UInt32, excludingPID: pid_t? = nil) -> CGRect? {
+        for item in scanned(excludingPID: excludingPID) where item.reference.windowID == windowID {
+            return cocoaBounds(from: item.bounds)
+        }
+        return nil
+    }
+
+    public func cocoaFramesByID(excludingPID: pid_t? = nil) -> [UInt32: CGRect] {
+        var map: [UInt32: CGRect] = [:]
+        for item in scanned(excludingPID: excludingPID) {
+            map[item.reference.windowID] = cocoaBounds(from: item.bounds)
+        }
+        return map
     }
 }
