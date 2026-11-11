@@ -13,26 +13,23 @@ public enum LayoutCommand: String, Sendable, CaseIterable {
 public struct LayoutEngine: Sendable {
     public init() {}
 
-    /// 按窗口数量生成平衡二分树（窗口多时优先水平再垂直交替）。
+    /// 螺旋二分：每层只切出一个窗口，方向左右 / 上下交替。
+    /// 2 个→左右；3 个→左 1 + 右上 1 + 右下 1；4 个→左 1 + 右上 1 + 右下左右 2……
     public func autoLayout(windows: [WindowReference]) -> LayoutNode {
-        buildAutoTree(windows: windows, depth: 0)
+        buildSpiral(windows: windows, direction: .horizontal)
     }
 
-    private func buildAutoTree(windows: [WindowReference], depth: Int) -> LayoutNode {
-        guard let first = windows.first else { return .empty }
-        if windows.count == 1 { return .leaf(first) }
+    private func buildSpiral(windows: [WindowReference], direction: SplitDirection) -> LayoutNode {
+        guard let head = windows.first else { return .empty }
+        if windows.count == 1 { return .leaf(head) }
 
-        let mid = windows.count / 2
-        let lhs = Array(windows.prefix(mid))
-        let rhs = Array(windows.suffix(windows.count - mid))
-        let direction: SplitDirection = depth.isMultiple(of: 2) ? .horizontal : .vertical
-        let ratio = Double(lhs.count) / Double(windows.count)
-
+        let tail = Array(windows.dropFirst())
+        let nextDirection: SplitDirection = direction == .horizontal ? .vertical : .horizontal
         return .split(
             direction: direction,
-            ratio: ratio,
-            first: buildAutoTree(windows: lhs, depth: depth + 1),
-            second: buildAutoTree(windows: rhs, depth: depth + 1)
+            ratio: LayoutNode.defaultRatio,
+            first: .leaf(head),
+            second: buildSpiral(windows: tail, direction: nextDirection)
         )
     }
 
