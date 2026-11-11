@@ -2,7 +2,9 @@ import AppKit
 import YooWindowsManagerCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private static let didOpenAccessibilitySettingsKey = "accessibility.didOpenSettingsAutomatically"
+
     private enum WindowOrderChange {
         case first
         case up
@@ -20,7 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var settingsWindow = SettingsWindowController(settings: settings)
 
     private var statusItem: NSStatusItem?
+    private var accessibilityMenuItem: NSMenuItem?
     private var autoLayoutTimer: Timer?
+    private var lastAccessibilityTrusted = false
     private var lastSignature = ""
     private var lastScreenByWindow: [UInt32: String] = [:]
     private var screenAssignmentAtDragStart = ""
@@ -37,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        configureApplicationIcon()
+        lastAccessibilityTrusted = ax.isTrusted()
         setupStatusItem()
         settings.onChange = { [weak self] change in
             self?.settingsDidChange(change)
@@ -63,9 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         hotkeys.start(shortcuts: settings.shortcuts)
-        if !ax.isTrusted() {
+        if !lastAccessibilityTrusted,
+           !UserDefaults.standard.bool(forKey: Self.didOpenAccessibilitySettingsKey)
+        {
             DispatchQueue.main.async { [weak self] in
-                _ = self?.ensureAccessibilityPermission()
+                self?.openAccessibilitySettings()
             }
         }
         interactionPause.start()
@@ -106,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = MenuBarIcon.make(enabled: true)
 
         let menu = NSMenu()
+        menu.delegate = self
         let relayoutItem = NSMenuItem(title: "重新布局", action: #selector(relayoutNow), keyEquivalent: "r")
         relayoutItem.keyEquivalentModifierMask = [.control, .shift]
         relayoutItem.target = self
@@ -124,18 +133,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         let accessibilityItem = NSMenuItem(
-            title: "申请辅助功能权限…",
+            title: "",
             action: #selector(requestAccessibilityPermission),
             keyEquivalent: ""
         )
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
+        accessibilityMenuItem = accessibilityItem
+        updateAccessibilityMenuItem()
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "退出", action: #selector(quitApplication), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem?.menu = menu
+    }
+
+    private func configureApplicationIcon() {
+        guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+              let icon = NSImage(contentsOf: iconURL)
+        else { return }
+        NSApp.applicationIconImage = icon
     }
 
     @objc private func relayoutNow() {
@@ -197,18 +215,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func requestAccessibilityPermission() {
-        guard ax.isTrusted() else {
-            _ = ensureAccessibilityPermission()
-            return
-        }
+        guard !ax.isTrusted() else { return }
+        openAccessibilitySettings()
+    }
 
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "辅助功能权限已授权"
-        alert.informativeText = "本程序已经可以管理窗口的位置和大小。"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "好")
-        alert.runModal()
+    func menuWillOpen(_ menu: NSMenu) {
+        updateAccessibilityMenuItem()
     }
 
     @objc private func quitApplication() {
@@ -447,9 +459,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         autoLayoutTimer = Timer.scheduledTimer(withTimeInterval: settings.autoLayoutInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.relayoutAllScreensIfNeeded(animated: false)
+                self?.autoLayoutTick()
             }
         }
+    }
+
+    private func autoLayoutTick() {
+        let isTrusted = ax.isTrusted()
+        if isTrusted != lastAccessibilityTrusted {
+            lastAccessibilityTrusted = isTrusted
+            updateAccessibilityMenuItem()
+            if isTrusted {
+                lastSignature = ""
+                relayoutAllScreensIfNeeded(force: true, animated: settings.animateRelayout)
+                return
+            }
+        }
+        relayoutAllScreensIfNeeded(animated: false)
     }
 
     private func stopAutoLayout() {
@@ -616,29 +642,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @discardableResult
     private func ensureAccessibilityPermission() -> Bool {
-        if ax.isTrusted() { return true }
-
-        ax.requestTrust(prompt: true)
-
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "需要辅助功能权限"
-        alert.informativeText = """
-        已尝试打开「系统设置 → 隐私与安全性 → 辅助功能」。
-
-        请打开开关，并在列表中允许本程序：
-        \(ax.trustedAppPath)
-
-        若列表中没有，请点「+」手动添加以上路径。授权后点击菜单栏中的「重新布局」。
-        """
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "知道了")
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            ax.openAccessibilitySettings()
+        if ax.isTrusted() {
+            lastAccessibilityTrusted = true
+            updateAccessibilityMenuItem()
+            return true
         }
+        openAccessibilitySettings()
         return false
+    }
+
+    private func openAccessibilitySettings() {
+        UserDefaults.standard.set(true, forKey: Self.didOpenAccessibilitySettingsKey)
+        ax.openAccessibilitySettings()
+        updateAccessibilityMenuItem()
+    }
+
+    private func updateAccessibilityMenuItem() {
+        let trusted = ax.isTrusted()
+        accessibilityMenuItem?.title = trusted
+            ? "辅助功能权限：已授权"
+            : "辅助功能权限：未授权…"
+        accessibilityMenuItem?.isEnabled = !trusted
     }
 
 }

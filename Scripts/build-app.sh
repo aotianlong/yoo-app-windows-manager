@@ -18,12 +18,16 @@ binary_directory=$(swift build \
     --show-bin-path)
 
 mkdir -p "$contents_path/MacOS"
+mkdir -p "$contents_path/Resources"
 /usr/bin/install -m 755 \
     "$binary_directory/YooWindowsManager" \
     "$contents_path/MacOS/YooWindowsManager"
 /usr/bin/install -m 644 \
     "$project_root/Resources/Info.plist" \
     "$contents_path/Info.plist"
+/usr/bin/install -m 644 \
+    "$project_root/Resources/AppIcon.icns" \
+    "$contents_path/Resources/AppIcon.icns"
 
 /usr/bin/codesign \
     --force \

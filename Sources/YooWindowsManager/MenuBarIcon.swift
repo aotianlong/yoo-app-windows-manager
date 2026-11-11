@@ -4,35 +4,41 @@ enum MenuBarIcon {
     static func make(enabled: Bool) -> NSImage {
         let size = NSSize(width: 22, height: 18)
         let image = NSImage(size: size)
-        image.isTemplate = true
 
         image.lockFocus()
         defer { image.unlockFocus() }
 
-        let bg = NSBezierPath(roundedRect: NSRect(x: 1, y: 1, width: 20, height: 16), xRadius: 4.5, yRadius: 4.5)
-        let stroke = enabled ? NSColor.labelColor : NSColor.secondaryLabelColor
+        let stroke = NSColor.black.withAlphaComponent(enabled ? 1 : 0.48)
+        let bg = NSBezierPath(roundedRect: NSRect(x: 1, y: 1, width: 20, height: 16), xRadius: 4, yRadius: 4)
         stroke.setStroke()
-        bg.lineWidth = 1.6
+        bg.lineWidth = 1.45
         bg.stroke()
 
-        let fill = enabled ? NSColor.labelColor.withAlphaComponent(0.18) : NSColor.secondaryLabelColor.withAlphaComponent(0.08)
-        fill.setFill()
-        bg.fill()
-
-        stroke.setStroke()
-
-        let vertical = NSBezierPath()
-        vertical.move(to: NSPoint(x: 11, y: 3))
-        vertical.line(to: NSPoint(x: 11, y: 15))
-        vertical.lineWidth = 1.3
-        vertical.stroke()
-
+        // 上方保留简化的二分窗口结构，下方放置 yoo 品牌字样。
         let horizontal = NSBezierPath()
-        horizontal.move(to: NSPoint(x: 3.5, y: 9))
-        horizontal.line(to: NSPoint(x: 18.5, y: 9))
-        horizontal.lineWidth = 1.3
+        horizontal.move(to: NSPoint(x: 2.2, y: 11.2))
+        horizontal.line(to: NSPoint(x: 19.8, y: 11.2))
+        horizontal.lineWidth = 1.15
         horizontal.stroke()
 
+        let vertical = NSBezierPath()
+        vertical.move(to: NSPoint(x: 9, y: 11.2))
+        vertical.line(to: NSPoint(x: 9, y: 16))
+        vertical.lineWidth = 1.15
+        vertical.stroke()
+
+        let text = NSAttributedString(
+            string: "yoo",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 8.3, weight: .bold),
+                .foregroundColor: stroke,
+                .kern: -0.35,
+            ]
+        )
+        let textSize = text.size()
+        text.draw(at: NSPoint(x: (size.width - textSize.width) / 2, y: 1.45))
+
+        image.isTemplate = true
         return image
     }
 }

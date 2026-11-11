@@ -24,7 +24,7 @@ cd /Volumes/DataExt/workspace/yoo-app-windows-manager
 open .build/YooWindowsManager.app
 ```
 
-首次运行请在菜单「申请辅助功能权限」中完成授权。
+首次运行会直接打开系统的辅助功能授权页，不再显示重复的应用内提示框。菜单会显示当前授权状态；打开开关后应用会自动继续布局。
 
 ## 使用
 
