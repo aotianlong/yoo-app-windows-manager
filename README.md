@@ -2,6 +2,12 @@
 
 macOS 下的轻量窗口管理器，采用 **二分法（BSP，Binary Space Partitioning）** 管理窗口布局。
 
+## 下载
+
+从 [GitHub Releases](https://github.com/aotianlong/yoo-app-windows-manager/releases/latest) 下载编译好的 `YooWindowsManager-*-macos-arm64.app.zip`（Apple Silicon），解压后将应用拖入“应用程序”目录。
+
+当前发布包使用 ad-hoc 签名，首次启动若被 macOS 拦截，请在 Finder 中右键应用并选择“打开”。
+
 ## 功能概览
 
 - 维护每块屏幕的二分树布局（水平左右 / 垂直上下）
@@ -87,3 +93,7 @@ swift test
 - 拖拽调整某层 split 的 `ratio`
 - 多桌面 / Space 感知
 - 打包为 `.app` 并签名分发
+
+## 许可证
+
+[MIT](LICENSE)
