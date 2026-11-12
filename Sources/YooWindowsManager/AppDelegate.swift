@@ -228,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func workspaceDidChange() {
+        guard !isDesktopRevealActive else { return }
         relayoutAllScreensIfNeeded(animated: false)
     }
 
@@ -513,7 +514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyAllCurrentWorkspaces() {
-        guard ax.isTrusted(), !isApplyingLayout else { return }
+        guard ax.isTrusted(), !isApplyingLayout, !isDesktopRevealActive else { return }
         let allPlacements = NSScreen.screens.flatMap { screen in
             placements(for: store.workspace(for: screen))
         }
@@ -528,12 +529,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func relayoutAllScreensIfNeeded(force: Bool = false, animated: Bool = false) {
         guard ax.isTrusted(), !isApplyingLayout else { return }
         guard !interactionPause.shouldSuppressLayout else { return }
+        guard !isDesktopRevealActive else { return }
         let signature = windowSetSignature()
         if !force {
             guard signature != lastSignature else { return }
         }
         lastSignature = signature
         relayoutAllScreens(animated: animated)
+    }
+
+    /// macOS 的“点按墙纸显示桌面”会暂时把普通窗口移出 on-screen 列表。
+    /// 此时 Finder 在前台但没有任何 Finder 标准窗口，不能把它误判成窗口被关闭。
+    private var isDesktopRevealActive: Bool {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication,
+              frontmost.bundleIdentifier == "com.apple.finder"
+        else { return false }
+
+        return !discovery.onScreenWindows(excludingPID: ownPID)
+            .contains { $0.ownerPID == frontmost.processIdentifier }
     }
 
     private func windowSetSignature() -> String {
