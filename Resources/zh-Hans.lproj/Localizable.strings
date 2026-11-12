@@ -1,0 +1,55 @@
+"menu.relayout" = "重新布局";
+"menu.settings" = "设置…";
+"menu.about" = "关于 Yoo Windows Manager";
+"menu.quit" = "退出";
+
+"about.credits_format" = "严格二分窗口管理器\n\n支持多显示器、窗口间距、实时缩放联动、拖动交换和可配置全局快捷键。\n\n安装位置：%@";
+"about.version_format" = "版本 %@（%@）";
+
+"accessibility.authorized" = "辅助功能权限：已授权";
+"accessibility.not_authorized" = "辅助功能权限：未授权…";
+
+"drag.release_to_swap" = "⇄  松开交换";
+"drag.release_to_restore" = "↩  松开恢复";
+
+"hotkey.relayout" = "重新布局";
+"hotkey.promote_first" = "当前窗口排到第一位";
+"hotkey.move_up" = "当前窗口向前一位";
+"hotkey.move_down" = "当前窗口向后一位";
+"hotkey.not_set" = "未设置";
+"hotkey.unknown_key_format" = "按键 %u";
+
+"settings.window_title" = "Yoo Windows Manager 设置";
+"settings.tab.general" = "通用";
+"settings.tab.layout" = "布局";
+"settings.tab.hotkeys" = "快捷键";
+"settings.reset_defaults" = "恢复默认设置";
+"settings.launch_at_login" = "登录时自动启动";
+"settings.layout_on_launch" = "应用启动后自动整理窗口";
+"settings.moved_window_first" = "跨屏移动后排到新屏幕第一位";
+"settings.animate_relayout" = "重新布局时使用动画";
+"settings.show_drag_feedback" = "拖动窗口时显示交换 / 恢复提示";
+"settings.accessibility_note" = "应用需要保留在“辅助功能”授权列表中，才能在登录后自动整理窗口。";
+"settings.section.startup" = "启动";
+"settings.section.cross_display" = "跨显示器";
+"settings.section.spacing" = "间距";
+"settings.section.interaction" = "交互";
+"settings.section.auto_detection" = "自动检测";
+"settings.section.global_hotkeys" = "全局快捷键";
+"settings.window_gap" = "窗口间距";
+"settings.edge_gap" = "屏幕边距";
+"settings.swap_distance" = "拖动交换阈值";
+"settings.auto_layout_interval" = "检查新窗口频率";
+"settings.hotkey_conflict_title" = "快捷键冲突";
+"settings.hotkey_conflict_format" = "这个快捷键已经用于“%@”。";
+"settings.hotkey_help" = "点击快捷键后直接按下新组合；按 Delete 清除，按 Esc 取消。全局快捷键至少需要一个修饰键。";
+"settings.launch_at_login_error" = "无法更改开机启动";
+"settings.reset_error" = "部分设置未能恢复";
+"settings.seconds_format" = "%.1f 秒";
+"settings.press_shortcut" = "请按快捷键…";
+
+"error.accessibility_not_granted" = "未获得辅助功能权限，请在「系统设置 → 隐私与安全性 → 辅助功能」中授权本应用。";
+"error.application_not_found_format" = "找不到 PID 为 %d 的应用进程。";
+"error.window_not_found_format" = "找不到窗口 ID %u。";
+"error.attribute_set_failed_format" = "无法设置窗口属性：%@。";
+"window.untitled" = "无标题";

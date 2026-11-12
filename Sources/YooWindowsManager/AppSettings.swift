@@ -17,10 +17,10 @@ enum HotkeyAction: UInt32, CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .relayout: "重新布局"
-        case .promoteFirst: "当前窗口排到第一位"
-        case .moveUp: "当前窗口向前一位"
-        case .moveDown: "当前窗口向后一位"
+        case .relayout: L10n.text("hotkey.relayout")
+        case .promoteFirst: L10n.text("hotkey.promote_first")
+        case .moveUp: L10n.text("hotkey.move_up")
+        case .moveDown: L10n.text("hotkey.move_down")
         }
     }
 
@@ -46,7 +46,7 @@ struct GlobalShortcut: Equatable {
     var isEnabled = true
 
     var displayName: String {
-        guard isEnabled else { return "未设置" }
+        guard isEnabled else { return L10n.text("hotkey.not_set") }
         var value = ""
         if modifiers & UInt32(controlKey) != 0 { value += "⌃" }
         if modifiers & UInt32(optionKey) != 0 { value += "⌥" }
@@ -100,7 +100,7 @@ struct GlobalShortcut: Equatable {
             UInt32(kVK_ANSI_6): "6", UInt32(kVK_ANSI_7): "7", UInt32(kVK_ANSI_8): "8",
             UInt32(kVK_ANSI_9): "9",
         ]
-        return letterCodes[keyCode] ?? "Key \(keyCode)"
+        return letterCodes[keyCode] ?? L10n.format("hotkey.unknown_key_format", keyCode)
     }
 }
 

@@ -16,7 +16,9 @@ public struct WindowReference: Hashable, Codable, Sendable, CustomStringConverti
     }
 
     public var description: String {
-        let safeTitle = title.isEmpty ? "(无标题)" : title
+        let safeTitle = title.isEmpty
+            ? Bundle.main.localizedString(forKey: "window.untitled", value: "Untitled", table: nil)
+            : title
         return "\(ownerName) — \(safeTitle)"
     }
 }

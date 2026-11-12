@@ -12,14 +12,22 @@ public enum WindowManagerError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .accessibilityNotGranted:
-            return "未获得辅助功能权限，请在「系统设置 → 隐私与安全性 → 辅助功能」中授权本应用。"
+            return localized("error.accessibility_not_granted")
         case let .applicationNotFound(pid):
-            return "找不到 PID 为 \(pid) 的应用进程。"
+            return localizedFormat("error.application_not_found_format", pid)
         case let .windowNotFound(windowID):
-            return "找不到窗口 ID \(windowID)。"
+            return localizedFormat("error.window_not_found_format", windowID)
         case let .attributeSetFailed(name):
-            return "无法设置窗口属性：\(name)。"
+            return localizedFormat("error.attribute_set_failed_format", name)
         }
+    }
+
+    private func localized(_ key: String) -> String {
+        Bundle.main.localizedString(forKey: key, value: key, table: nil)
+    }
+
+    private func localizedFormat(_ key: String, _ arguments: CVarArg...) -> String {
+        String(format: localized(key), locale: Locale.current, arguments: arguments)
     }
 }
 

@@ -14,6 +14,7 @@ macOS 下的轻量窗口管理器，采用 **二分法（BSP，Binary Space Part
 - 按树结构计算窗口 frame，并通过 Accessibility API 应用
 - 菜单栏常驻，按显示器上窗口数量自动二分
 - 布局状态持久化到 `~/Library/Application Support/YooWindowsManager/`
+- 自动跟随系统语言，支持简体中文和英文
 
 ## 环境要求
 

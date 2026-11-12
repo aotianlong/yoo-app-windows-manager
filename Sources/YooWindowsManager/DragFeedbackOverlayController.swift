@@ -56,7 +56,9 @@ private final class DragFeedbackView: NSView {
         border.lineWidth = 6
         border.stroke()
 
-        let text = isSwap ? "⇄  松开交换" : "↩  松开恢复"
+        let text = isSwap
+            ? L10n.text("drag.release_to_swap")
+            : L10n.text("drag.release_to_restore")
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 22, weight: .semibold),
             .foregroundColor: NSColor.white,

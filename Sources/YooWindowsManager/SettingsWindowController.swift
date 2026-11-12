@@ -5,11 +5,21 @@ import Carbon.HIToolbox
 final class SettingsWindowController: NSWindowController {
     private let settings: AppSettings
 
-    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "登录时自动启动", target: nil, action: nil)
-    private let layoutOnLaunchCheckbox = NSButton(checkboxWithTitle: "应用启动后自动整理窗口", target: nil, action: nil)
-    private let movedWindowFirstCheckbox = NSButton(checkboxWithTitle: "跨屏移动后排到新屏幕第一位", target: nil, action: nil)
-    private let animationCheckbox = NSButton(checkboxWithTitle: "重新布局时使用动画", target: nil, action: nil)
-    private let feedbackCheckbox = NSButton(checkboxWithTitle: "拖动窗口时显示交换 / 恢复提示", target: nil, action: nil)
+    private let launchAtLoginCheckbox = NSButton(
+        checkboxWithTitle: L10n.text("settings.launch_at_login"), target: nil, action: nil
+    )
+    private let layoutOnLaunchCheckbox = NSButton(
+        checkboxWithTitle: L10n.text("settings.layout_on_launch"), target: nil, action: nil
+    )
+    private let movedWindowFirstCheckbox = NSButton(
+        checkboxWithTitle: L10n.text("settings.moved_window_first"), target: nil, action: nil
+    )
+    private let animationCheckbox = NSButton(
+        checkboxWithTitle: L10n.text("settings.animate_relayout"), target: nil, action: nil
+    )
+    private let feedbackCheckbox = NSButton(
+        checkboxWithTitle: L10n.text("settings.show_drag_feedback"), target: nil, action: nil
+    )
 
     private let windowGapSlider = NSSlider(value: 10, minValue: 0, maxValue: 40, target: nil, action: nil)
     private let edgeGapSlider = NSSlider(value: 5, minValue: 0, maxValue: 40, target: nil, action: nil)
@@ -43,21 +53,25 @@ final class SettingsWindowController: NSWindowController {
 
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Yoo Windows Manager 设置"
+        window.title = L10n.text("settings.window_title")
         window.isReleasedWhenClosed = false
 
         let tabs = NSTabView()
         tabs.translatesAutoresizingMaskIntoConstraints = false
-        tabs.addTabViewItem(tabItem(label: "通用", view: makeGeneralView()))
-        tabs.addTabViewItem(tabItem(label: "布局", view: makeLayoutView()))
-        tabs.addTabViewItem(tabItem(label: "快捷键", view: makeHotkeysView()))
+        tabs.addTabViewItem(tabItem(label: L10n.text("settings.tab.general"), view: makeGeneralView()))
+        tabs.addTabViewItem(tabItem(label: L10n.text("settings.tab.layout"), view: makeLayoutView()))
+        tabs.addTabViewItem(tabItem(label: L10n.text("settings.tab.hotkeys"), view: makeHotkeysView()))
 
-        let resetButton = NSButton(title: "恢复默认设置", target: self, action: #selector(resetDefaults))
+        let resetButton = NSButton(
+            title: L10n.text("settings.reset_defaults"),
+            target: self,
+            action: #selector(resetDefaults)
+        )
         resetButton.bezelStyle = .rounded
         resetButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -81,14 +95,14 @@ final class SettingsWindowController: NSWindowController {
         configureCheckbox(layoutOnLaunchCheckbox)
         configureCheckbox(movedWindowFirstCheckbox)
 
-        let note = NSTextField(wrappingLabelWithString: "应用需要保留在“辅助功能”授权列表中，才能在登录后自动整理窗口。")
+        let note = NSTextField(wrappingLabelWithString: L10n.text("settings.accessibility_note"))
         note.textColor = .secondaryLabelColor
         let stack = verticalStack([
-            sectionTitle("启动"),
+            sectionTitle(L10n.text("settings.section.startup")),
             launchAtLoginCheckbox,
             layoutOnLaunchCheckbox,
             note,
-            sectionTitle("跨显示器"),
+            sectionTitle(L10n.text("settings.section.cross_display")),
             movedWindowFirstCheckbox,
         ])
         return padded(stack)
@@ -103,21 +117,29 @@ final class SettingsWindowController: NSWindowController {
         configureSlider(intervalSlider)
 
         let stack = verticalStack([
-            sectionTitle("间距"),
-            sliderRow(title: "窗口间距", slider: windowGapSlider, value: windowGapValue),
-            sliderRow(title: "屏幕边距", slider: edgeGapSlider, value: edgeGapValue),
-            sectionTitle("交互"),
-            sliderRow(title: "拖动交换阈值", slider: swapDistanceSlider, value: swapDistanceValue),
+            sectionTitle(L10n.text("settings.section.spacing")),
+            sliderRow(title: L10n.text("settings.window_gap"), slider: windowGapSlider, value: windowGapValue),
+            sliderRow(title: L10n.text("settings.edge_gap"), slider: edgeGapSlider, value: edgeGapValue),
+            sectionTitle(L10n.text("settings.section.interaction")),
+            sliderRow(
+                title: L10n.text("settings.swap_distance"),
+                slider: swapDistanceSlider,
+                value: swapDistanceValue
+            ),
             feedbackCheckbox,
             animationCheckbox,
-            sectionTitle("自动检测"),
-            sliderRow(title: "检查新窗口频率", slider: intervalSlider, value: intervalValue),
+            sectionTitle(L10n.text("settings.section.auto_detection")),
+            sliderRow(
+                title: L10n.text("settings.auto_layout_interval"),
+                slider: intervalSlider,
+                value: intervalValue
+            ),
         ])
         return padded(stack)
     }
 
     private func makeHotkeysView() -> NSView {
-        let stack = verticalStack([sectionTitle("全局快捷键")])
+        let stack = verticalStack([sectionTitle(L10n.text("settings.section.global_hotkeys"))])
         for action in HotkeyAction.allCases {
             let button = ShortcutRecorderButton(shortcut: settings.shortcut(for: action))
             button.onRecord = { [weak self, weak button] shortcut in
@@ -128,8 +150,8 @@ final class SettingsWindowController: NSWindowController {
                    })
                 {
                     self.showAlert(
-                        title: "快捷键冲突",
-                        message: "这个快捷键已经用于“\(conflict.title)”。"
+                        title: L10n.text("settings.hotkey_conflict_title"),
+                        message: L10n.format("settings.hotkey_conflict_format", conflict.title)
                     )
                     button?.setShortcut(self.settings.shortcut(for: action))
                     return false
@@ -150,7 +172,7 @@ final class SettingsWindowController: NSWindowController {
             stack.addArrangedSubview(row)
         }
 
-        let help = NSTextField(wrappingLabelWithString: "点击快捷键后直接按下新组合；按 Delete 清除，按 Esc 取消。全局快捷键至少需要一个修饰键。")
+        let help = NSTextField(wrappingLabelWithString: L10n.text("settings.hotkey_help"))
         help.textColor = .secondaryLabelColor
         stack.addArrangedSubview(help)
         return padded(stack)
@@ -175,7 +197,7 @@ final class SettingsWindowController: NSWindowController {
                 try settings.setLaunchAtLogin(enabled)
             } catch {
                 sender.state = settings.launchAtLogin ? .on : .off
-                showAlert(title: "无法更改开机启动", message: error.localizedDescription)
+                showAlert(title: L10n.text("settings.launch_at_login_error"), message: error.localizedDescription)
             }
         case layoutOnLaunchCheckbox:
             settings.layoutOnLaunch = enabled
@@ -211,7 +233,7 @@ final class SettingsWindowController: NSWindowController {
             try settings.resetToDefaults()
             refreshControls()
         } catch {
-            showAlert(title: "部分设置未能恢复", message: error.localizedDescription)
+            showAlert(title: L10n.text("settings.reset_error"), message: error.localizedDescription)
         }
     }
 
@@ -235,7 +257,7 @@ final class SettingsWindowController: NSWindowController {
         windowGapValue.stringValue = "\(Int(settings.windowGap)) pt"
         edgeGapValue.stringValue = "\(Int(settings.edgeGap)) pt"
         swapDistanceValue.stringValue = "\(Int(settings.swapDistance)) pt"
-        intervalValue.stringValue = String(format: "%.1f 秒", settings.autoLayoutInterval)
+        intervalValue.stringValue = L10n.format("settings.seconds_format", settings.autoLayoutInterval)
     }
 
     private func tabItem(label: String, view: NSView) -> NSTabViewItem {
@@ -261,7 +283,7 @@ final class SettingsWindowController: NSWindowController {
 
     private func sliderRow(title: String, slider: NSSlider, value: NSTextField) -> NSView {
         let label = NSTextField(labelWithString: title)
-        label.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 200).isActive = true
         value.alignment = .right
         value.widthAnchor.constraint(equalToConstant: 64).isActive = true
         slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -269,7 +291,7 @@ final class SettingsWindowController: NSWindowController {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 12
-        row.widthAnchor.constraint(equalToConstant: 500).isActive = true
+        row.widthAnchor.constraint(equalToConstant: 600).isActive = true
         return row
     }
 
@@ -321,7 +343,7 @@ private final class ShortcutRecorderButton: NSButton {
 
     @objc private func beginRecording() {
         stopRecording()
-        title = "请按快捷键…"
+        title = L10n.text("settings.press_shortcut")
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == UInt16(kVK_Escape) {

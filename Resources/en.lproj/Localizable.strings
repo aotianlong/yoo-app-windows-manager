@@ -1,0 +1,55 @@
+"menu.relayout" = "Relayout";
+"menu.settings" = "Settings…";
+"menu.about" = "About Yoo Windows Manager";
+"menu.quit" = "Quit";
+
+"about.credits_format" = "Strict BSP window manager\n\nSupports multiple displays, window gaps, live resize synchronization, drag-to-swap, and configurable global shortcuts.\n\nInstalled at: %@";
+"about.version_format" = "Version %@ (%@)";
+
+"accessibility.authorized" = "Accessibility: Authorized";
+"accessibility.not_authorized" = "Accessibility: Not Authorized…";
+
+"drag.release_to_swap" = "⇄  Release to Swap";
+"drag.release_to_restore" = "↩  Release to Restore";
+
+"hotkey.relayout" = "Relayout";
+"hotkey.promote_first" = "Move Current Window to First";
+"hotkey.move_up" = "Move Current Window Forward";
+"hotkey.move_down" = "Move Current Window Backward";
+"hotkey.not_set" = "Not Set";
+"hotkey.unknown_key_format" = "Key %u";
+
+"settings.window_title" = "Yoo Windows Manager Settings";
+"settings.tab.general" = "General";
+"settings.tab.layout" = "Layout";
+"settings.tab.hotkeys" = "Shortcuts";
+"settings.reset_defaults" = "Restore Defaults";
+"settings.launch_at_login" = "Launch at login";
+"settings.layout_on_launch" = "Arrange windows after launch";
+"settings.moved_window_first" = "Place cross-display windows first on the new display";
+"settings.animate_relayout" = "Animate window relayout";
+"settings.show_drag_feedback" = "Show swap / restore feedback while dragging";
+"settings.accessibility_note" = "Keep the app in the Accessibility authorization list so it can arrange windows after login.";
+"settings.section.startup" = "Startup";
+"settings.section.cross_display" = "Multiple Displays";
+"settings.section.spacing" = "Spacing";
+"settings.section.interaction" = "Interaction";
+"settings.section.auto_detection" = "Automatic Detection";
+"settings.section.global_hotkeys" = "Global Shortcuts";
+"settings.window_gap" = "Window gap";
+"settings.edge_gap" = "Screen edge gap";
+"settings.swap_distance" = "Drag-to-swap threshold";
+"settings.auto_layout_interval" = "New window check interval";
+"settings.hotkey_conflict_title" = "Shortcut Conflict";
+"settings.hotkey_conflict_format" = "This shortcut is already assigned to “%@”.";
+"settings.hotkey_help" = "Click a shortcut and press a new key combination. Press Delete to clear it or Esc to cancel. Global shortcuts require at least one modifier key.";
+"settings.launch_at_login_error" = "Could Not Change Launch at Login";
+"settings.reset_error" = "Some Settings Could Not Be Restored";
+"settings.seconds_format" = "%.1f sec";
+"settings.press_shortcut" = "Press Shortcut…";
+
+"error.accessibility_not_granted" = "Accessibility access has not been granted. Authorize this app in System Settings → Privacy & Security → Accessibility.";
+"error.application_not_found_format" = "Could not find the application process with PID %d.";
+"error.window_not_found_format" = "Could not find window ID %u.";
+"error.attribute_set_failed_format" = "Could not set window attribute: %@.";
+"window.untitled" = "Untitled";

@@ -115,16 +115,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.delegate = self
-        let relayoutItem = NSMenuItem(title: "重新布局", action: #selector(relayoutNow), keyEquivalent: "r")
+        let relayoutItem = NSMenuItem(
+            title: L10n.text("menu.relayout"),
+            action: #selector(relayoutNow),
+            keyEquivalent: "r"
+        )
         relayoutItem.keyEquivalentModifierMask = [.control, .shift]
         relayoutItem.target = self
         menu.addItem(relayoutItem)
-        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(
+            title: L10n.text("menu.settings"),
+            action: #selector(openSettings),
+            keyEquivalent: ","
+        )
         settingsItem.keyEquivalentModifierMask = [.command]
         settingsItem.target = self
         menu.addItem(settingsItem)
         let aboutItem = NSMenuItem(
-            title: "关于 Yoo Windows Manager",
+            title: L10n.text("menu.about"),
             action: #selector(showAbout),
             keyEquivalent: ""
         )
@@ -143,7 +151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateAccessibilityMenuItem()
 
         menu.addItem(.separator())
-        let quitItem = NSMenuItem(title: "退出", action: #selector(quitApplication), keyEquivalent: "q")
+        let quitItem = NSMenuItem(
+            title: L10n.text("menu.quit"),
+            action: #selector(quitApplication),
+            keyEquivalent: "q"
+        )
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem?.menu = menu
@@ -169,17 +181,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
-        let credits = """
-        严格二分窗口管理器
-
-        支持多显示器、窗口间距、实时缩放联动、拖动交换和可配置全局快捷键。
-
-        安装位置：\(Bundle.main.bundlePath)
-        """
+        let credits = L10n.format("about.credits_format", Bundle.main.bundlePath)
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Yoo Windows Manager",
             .applicationVersion: version,
-            .version: "版本 \(version)（\(build)）",
+            .version: L10n.format("about.version_format", version, build),
             .credits: NSAttributedString(string: credits),
         ])
     }
@@ -673,8 +679,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateAccessibilityMenuItem() {
         let trusted = ax.isTrusted()
         accessibilityMenuItem?.title = trusted
-            ? "辅助功能权限：已授权"
-            : "辅助功能权限：未授权…"
+            ? L10n.text("accessibility.authorized")
+            : L10n.text("accessibility.not_authorized")
         accessibilityMenuItem?.isEnabled = !trusted
     }
 

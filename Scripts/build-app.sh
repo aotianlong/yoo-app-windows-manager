@@ -28,6 +28,11 @@ mkdir -p "$contents_path/Resources"
 /usr/bin/install -m 644 \
     "$project_root/Resources/AppIcon.icns" \
     "$contents_path/Resources/AppIcon.icns"
+for localization_dir in "$project_root"/Resources/*.lproj(N); do
+    /usr/bin/ditto \
+        "$localization_dir" \
+        "$contents_path/Resources/${localization_dir:t}"
+done
 
 /usr/bin/codesign \
     --force \
